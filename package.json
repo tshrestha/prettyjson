@@ -4,6 +4,7 @@
   "description": "High-performance streaming JSON pretty-printer for browsers and Chrome extensions.",
   "type": "module",
   "main": "src/index.js",
+  "license": "MIT",
   "scripts": {
     "test": "node --test src/formatter.test.js",
     "fmt": "dprint fmt"
