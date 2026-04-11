@@ -15,8 +15,8 @@ src/
 ├── index.js          Barrel export
 └── formatter.test.js 65 tests (node --test)
 
-examples/
-└── chrome-extension.js   Drop-in Chrome extension integration
+content.js            Chrome extension content script
+manifest.json         Chrome extension manifest (MV3)
 ```
 
 ## Design Principles
@@ -88,8 +88,8 @@ Error types:
 
 ### Chrome Extension
 
-See `examples/chrome-extension.js` for a complete integration pattern including manifest.json configuration and content
-script setup.
+`content.js` and `manifest.json` at the repo root wire the formatter up as a Chrome MV3 content script that auto-formats
+JSON `<pre>` blocks on any page.
 
 Key points:
 
