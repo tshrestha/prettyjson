@@ -1,0 +1,18 @@
+{
+  "typescript": {
+    "semiColons": "asi"
+  },
+  "json": {},
+  "markdown": {},
+  "includes": ["**/*.{js,mjs,cjs,ts,json,md}"],
+  "excludes": [
+    "**/node_modules",
+    "**/package-lock.json",
+    ".idea"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.95.15.wasm",
+    "https://plugins.dprint.dev/json-0.21.3.wasm",
+    "https://plugins.dprint.dev/markdown-0.21.1.wasm"
+  ]
+}

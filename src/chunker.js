@@ -13,8 +13,7 @@
  * formatter internals.
  */
 
-import { DEFAULT_CHUNK_SIZE } from "./constants.js";
-
+import { DEFAULT_CHUNK_SIZE } from "./constants.js"
 
 /**
  * @callback FormatChunkFn
@@ -53,33 +52,33 @@ export const processInChunks = async ({
   onProgress = null,
   signal = null,
 }) => {
-  const totalBytes = input.length;
-  let offset = 0;
+  const totalBytes = input.length
+  let offset = 0
 
   while (offset < totalBytes) {
     // Check for cancellation before each chunk.
     if (signal?.aborted) {
-      throw new DOMException("Formatting was cancelled.", "AbortError");
+      throw new DOMException("Formatting was cancelled.", "AbortError")
     }
 
-    const end = Math.min(offset + chunkSize, totalBytes);
-    processChunk(input, offset, end, state, outputBuffer);
+    const end = Math.min(offset + chunkSize, totalBytes)
+    processChunk(input, offset, end, state, outputBuffer)
 
-    offset = end;
+    offset = end
 
     if (onProgress) {
-      onProgress(offset, totalBytes);
+      onProgress(offset, totalBytes)
     }
 
     // Yield to the event loop between chunks so the thread stays
     // responsive. Using a microtask (Promise) for minimal overhead.
     if (offset < totalBytes) {
-      await yieldToEventLoop();
+      await yieldToEventLoop()
     }
   }
 
-  return outputBuffer.flush();
-};
+  return outputBuffer.flush()
+}
 
 /**
  * Yield to the event loop. Uses setTimeout(0) instead of
@@ -88,5 +87,4 @@ export const processInChunks = async ({
  *
  * @returns {Promise<void>}
  */
-const yieldToEventLoop = () =>
-  new Promise((resolve) => setTimeout(resolve, 0));
+const yieldToEventLoop = () => new Promise((resolve) => setTimeout(resolve, 0))

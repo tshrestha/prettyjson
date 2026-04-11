@@ -11,5 +11,5 @@
  * - `formatBytes`      — Synchronous bytes→bytes formatting (advanced).
  */
 
-export { createFormatter } from "./client.js";
-export { formatString, formatBytes } from "./formatter.js";
+export { createFormatter } from "./client.js"
+export { formatBytes, formatString } from "./formatter.js"

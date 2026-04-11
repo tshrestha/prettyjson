@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Pretty JSON",
+  "version": "1.0.0",
+  "description": "High-performance streaming JSON pretty-printer. Auto-formats JSON <pre> blocks on any page.",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>", "file:///*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/index.js",
+        "src/client.js",
+        "src/worker.js",
+        "src/formatter.js",
+        "src/chunker.js",
+        "src/constants.js"
+      ],
+      "matches": ["<all_urls>", "file:///*"]
+    }
+  ]
+}

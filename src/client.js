@@ -21,20 +21,17 @@
  *   formatter.destroy();
  */
 
-import { formatBytes } from "./formatter.js";
-
+import { formatBytes } from "./formatter.js"
 
 // ── ID generator ─────────────────────────────────────────────────────
 
-let nextId = 0;
-const generateId = () => `fmt_${nextId++}`;
-
+let nextId = 0
+const generateId = () => `fmt_${nextId++}`
 
 // ── Encoder / Decoder singletons ─────────────────────────────────────
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
 
 // ── Factory ──────────────────────────────────────────────────────────
 
@@ -60,66 +57,66 @@ const decoder = new TextDecoder();
  * @returns {FormatterInstance}
  */
 export const createFormatter = (config = {}) => {
-  const workerURL = config.workerURL ?? new URL("./worker.js", import.meta.url).href;
+  const workerURL = config.workerURL ?? new URL("./worker.js", import.meta.url).href
 
-  let worker = null;
-  const pendingJobs = new Map();
+  let worker = null
+  const pendingJobs = new Map()
 
   // ── Lazy worker initialization ───────────────────────────────
   const getWorker = () => {
-    if (worker) return worker;
+    if (worker) return worker
     try {
-      worker = new Worker(workerURL, { type: "module" });
-      worker.onmessage = handleWorkerMessage;
-      worker.onerror = handleWorkerError;
-      return worker;
+      worker = new Worker(workerURL, { type: "module" })
+      worker.onmessage = handleWorkerMessage
+      worker.onerror = handleWorkerError
+      return worker
     } catch {
       // Workers unavailable (e.g., file:// protocol, CSP).
-      return null;
+      return null
     }
-  };
+  }
 
   // ── Worker message handling ──────────────────────────────────
   const handleWorkerMessage = (event) => {
-    const { type, id, payload, errors, message, bytesProcessed, totalBytes } = event.data;
-    const job = pendingJobs.get(id);
-    if (!job) return;
+    const { type, id, payload, errors, message, bytesProcessed, totalBytes } = event.data
+    const job = pendingJobs.get(id)
+    if (!job) return
 
     if (type === "result") {
-      pendingJobs.delete(id);
-      job.cleanup?.();
-      const bytes = new Uint8Array(payload);
-      job.resolve({ output: decoder.decode(bytes), errors: errors ?? [] });
+      pendingJobs.delete(id)
+      job.cleanup?.()
+      const bytes = new Uint8Array(payload)
+      job.resolve({ output: decoder.decode(bytes), errors: errors ?? [] })
     }
 
     if (type === "error") {
-      pendingJobs.delete(id);
-      job.cleanup?.();
-      job.reject(new Error(message));
+      pendingJobs.delete(id)
+      job.cleanup?.()
+      job.reject(new Error(message))
     }
 
     if (type === "progress" && job.onProgress) {
-      const percent = Math.round((bytesProcessed / totalBytes) * 100);
-      job.onProgress(percent);
+      const percent = Math.round((bytesProcessed / totalBytes) * 100)
+      job.onProgress(percent)
     }
-  };
+  }
 
   const handleWorkerError = (event) => {
     // Global worker error — reject all pending jobs.
-    const error = new Error(event.message ?? "Worker encountered an error.");
+    const error = new Error(event.message ?? "Worker encountered an error.")
     for (const [, job] of pendingJobs) {
-      job.cleanup?.();
-      job.reject(error);
+      job.cleanup?.()
+      job.reject(error)
     }
-    pendingJobs.clear();
-  };
+    pendingJobs.clear()
+  }
 
   // ── Synchronous fallback ─────────────────────────────────────
   const formatSync = (jsonString, opts) => {
-    const input = encoder.encode(jsonString);
-    const { output, errors } = formatBytes(input, opts);
-    return { output: decoder.decode(output), errors };
-  };
+    const input = encoder.encode(jsonString)
+    const { output, errors } = formatBytes(input, opts)
+    return { output: decoder.decode(output), errors }
+  }
 
   // ── Public: format ───────────────────────────────────────────
   /**
@@ -130,18 +127,18 @@ export const createFormatter = (config = {}) => {
    * @returns {Promise<{output: string, errors: Array}>}
    */
   const format = (jsonString, opts = {}) => {
-    const w = getWorker();
+    const w = getWorker()
 
     // Fallback: if Workers aren't available, format synchronously.
     if (!w) {
-      return Promise.resolve(formatSync(jsonString, opts));
+      return Promise.resolve(formatSync(jsonString, opts))
     }
 
-    const id = generateId();
-    const inputBytes = encoder.encode(jsonString);
+    const id = generateId()
+    const inputBytes = encoder.encode(jsonString)
 
     // Transfer the underlying ArrayBuffer to avoid copying.
-    const transferable = inputBytes.buffer;
+    const transferable = inputBytes.buffer
 
     return new Promise((resolve, reject) => {
       const job = {
@@ -149,25 +146,25 @@ export const createFormatter = (config = {}) => {
         reject,
         onProgress: opts.onProgress ?? null,
         cleanup: null,
-      };
-      pendingJobs.set(id, job);
+      }
+      pendingJobs.set(id, job)
 
       // Wire up external cancellation. Keep a reference to the listener
       // so we can remove it on normal completion — otherwise long-lived
       // AbortSignals accumulate listeners across many format() calls.
       if (opts.signal) {
         if (opts.signal.aborted) {
-          pendingJobs.delete(id);
-          reject(new DOMException("Formatting was cancelled.", "AbortError"));
-          return;
+          pendingJobs.delete(id)
+          reject(new DOMException("Formatting was cancelled.", "AbortError"))
+          return
         }
         const onAbort = () => {
-          pendingJobs.delete(id);
-          w.postMessage({ type: "cancel", id });
-          reject(new DOMException("Formatting was cancelled.", "AbortError"));
-        };
-        opts.signal.addEventListener("abort", onAbort, { once: true });
-        job.cleanup = () => opts.signal.removeEventListener("abort", onAbort);
+          pendingJobs.delete(id)
+          w.postMessage({ type: "cancel", id })
+          reject(new DOMException("Formatting was cancelled.", "AbortError"))
+        }
+        opts.signal.addEventListener("abort", onAbort, { once: true })
+        job.cleanup = () => opts.signal.removeEventListener("abort", onAbort)
       }
 
       w.postMessage(
@@ -181,22 +178,22 @@ export const createFormatter = (config = {}) => {
           },
         },
         [transferable],
-      );
-    });
-  };
+      )
+    })
+  }
 
   // ── Public: destroy ──────────────────────────────────────────
   const destroy = () => {
     if (worker) {
-      worker.terminate();
-      worker = null;
+      worker.terminate()
+      worker = null
     }
     for (const [, job] of pendingJobs) {
-      job.cleanup?.();
-      job.reject(new Error("Formatter was destroyed."));
+      job.cleanup?.()
+      job.reject(new Error("Formatter was destroyed."))
     }
-    pendingJobs.clear();
-  };
+    pendingJobs.clear()
+  }
 
-  return Object.freeze({ format, destroy });
-};
+  return Object.freeze({ format, destroy })
+}

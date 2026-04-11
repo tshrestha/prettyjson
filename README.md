@@ -39,33 +39,33 @@ chunk. An `AbortSignal` can cancel formatting mid-stream.
 ### Quick (synchronous, small inputs)
 
 ```js
-import {formatString} from "./src/index.js";
+import { formatString } from "./src/index.js"
 
-const {output, errors} = formatString('{"a":1,"b":[2,3]}');
+const { output, errors } = formatString("{\"a\":1,\"b\":[2,3]}")
 // errors is [] on valid input.
 ```
 
 ### Recommended (async, Worker-backed)
 
 ```js
-import {createFormatter} from "./src/index.js";
+import { createFormatter } from "./src/index.js"
 
-const formatter = createFormatter();
+const formatter = createFormatter()
 
-const {output, errors} = await formatter.format(hugeJsonString, {
-    indentSize: 2,
-    onProgress: (percent) => updateProgressBar(percent),
-    signal: abortController.signal,
-});
+const { output, errors } = await formatter.format(hugeJsonString, {
+  indentSize: 2,
+  onProgress: (percent) => updateProgressBar(percent),
+  signal: abortController.signal,
+})
 
 if (errors.length > 0) {
-    // Formatting still succeeded — the output buffer contains the
-    // formatted JSON up to the error. Surface the errors alongside
-    // the output so the user can see both.
-    showErrorBanner(errors);
+  // Formatting still succeeded — the output buffer contains the
+  // formatted JSON up to the error. Surface the errors alongside
+  // the output so the user can see both.
+  showErrorBanner(errors)
 }
 
-formatter.destroy(); // when done
+formatter.destroy() // when done
 ```
 
 ### Error handling for malformed JSON
@@ -75,7 +75,7 @@ The formatter never throws on structural errors. It always produces an
 `errors` array describing any problems found:
 
 ```js
-const {output, errors} = formatString('{"a":1}}');
+const { output, errors } = formatString("{\"a\":1}}")
 // output: '{\n  "a": 1\n}'
 // errors: [{ type: "unbalanced_close", message: "...", offset: 7 }]
 ```
@@ -102,7 +102,7 @@ Key points:
 On a 2024 MacBook Pro (M3), formatting a 1MB JSON array of objects:
 
 | Method                                   | Time                  |
-|------------------------------------------|-----------------------|
+| ---------------------------------------- | --------------------- |
 | `JSON.stringify(JSON.parse(x), null, 2)` | ~120ms                |
 | `formatString` (this library)            | ~95ms                 |
 | Worker + `createFormatter`               | ~100ms (non-blocking) |

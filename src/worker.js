@@ -12,44 +12,36 @@
  *   { type: "progress", id, bytesProcessed, totalBytes }
  */
 
-import {
-  formatChunk,
-  finalizeFormat,
-  createFormatterState,
-  createOutputBuffer,
-} from "./formatter.js";
-import { processInChunks } from "./chunker.js";
-import { OUTPUT_BUFFER_SIZE } from "./constants.js";
-
+import { processInChunks } from "./chunker.js"
+import { OUTPUT_BUFFER_SIZE } from "./constants.js"
+import { createFormatterState, createOutputBuffer, finalizeFormat, formatChunk } from "./formatter.js"
 
 // ── Active job tracking (supports cancellation) ──────────────────────
 
 /** @type {Map<string, AbortController>} */
-const activeJobs = new Map();
-
+const activeJobs = new Map()
 
 // ── Message handler ──────────────────────────────────────────────────
 
 self.onmessage = async (event) => {
-  const { type, id, payload, options } = event.data;
+  const { type, id, payload, options } = event.data
 
   if (type === "cancel") {
-    const controller = activeJobs.get(id);
+    const controller = activeJobs.get(id)
     if (controller) {
-      controller.abort();
-      activeJobs.delete(id);
+      controller.abort()
+      activeJobs.delete(id)
     }
-    return;
+    return
   }
 
   if (type === "format") {
-    await handleFormat(id, payload, options);
-    return;
+    await handleFormat(id, payload, options)
+    return
   }
 
-  postError(id ?? "unknown", `Unknown message type: "${type}"`);
-};
-
+  postError(id ?? "unknown", `Unknown message type: "${type}"`)
+}
 
 // ── Format handler ───────────────────────────────────────────────────
 
@@ -59,15 +51,15 @@ self.onmessage = async (event) => {
  * @param {Object}      [options]
  */
 const handleFormat = async (id, payload, options = {}) => {
-  const controller = new AbortController();
-  activeJobs.set(id, controller);
+  const controller = new AbortController()
+  activeJobs.set(id, controller)
 
   try {
-    const input = new Uint8Array(payload);
-    const state = createFormatterState(options);
+    const input = new Uint8Array(payload)
+    const state = createFormatterState(options)
     const outputBuffer = createOutputBuffer(
       Math.max(input.length * 2, OUTPUT_BUFFER_SIZE),
-    );
+    )
 
     const result = await processInChunks({
       input,
@@ -77,38 +69,37 @@ const handleFormat = async (id, payload, options = {}) => {
       chunkSize: options.chunkSize,
       signal: controller.signal,
       onProgress: (bytesProcessed, totalBytes) => {
-        postProgress(id, bytesProcessed, totalBytes);
+        postProgress(id, bytesProcessed, totalBytes)
       },
-    });
+    })
 
     // Finalize: catches unclosed containers and unterminated strings
     // that can only be detected once we know there's no more input.
-    finalizeFormat(state);
+    finalizeFormat(state)
 
     // Transfer the result buffer to avoid copying.
-    const resultBuffer = result.buffer;
+    const resultBuffer = result.buffer
     self.postMessage(
       { type: "result", id, payload: resultBuffer, errors: state.errors },
       [resultBuffer],
-    );
+    )
   } catch (err) {
     if (err.name === "AbortError") {
       // Cancellation — no response needed, the caller already knows.
-      return;
+      return
     }
-    postError(id, err.message ?? String(err));
+    postError(id, err.message ?? String(err))
   } finally {
-    activeJobs.delete(id);
+    activeJobs.delete(id)
   }
-};
-
+}
 
 // ── Outbound message helpers ─────────────────────────────────────────
 
 const postProgress = (id, bytesProcessed, totalBytes) => {
-  self.postMessage({ type: "progress", id, bytesProcessed, totalBytes });
-};
+  self.postMessage({ type: "progress", id, bytesProcessed, totalBytes })
+}
 
 const postError = (id, message) => {
-  self.postMessage({ type: "error", id, message });
-};
+  self.postMessage({ type: "error", id, message })
+}

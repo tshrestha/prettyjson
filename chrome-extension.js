@@ -20,17 +20,15 @@
  *   └── popup.html / panel.html
  */
 
-
 // ── Setup ────────────────────────────────────────────────────────────
 
-import { createFormatter } from "./src/index.js";
+import { createFormatter } from "./src/index.js"
 
 // Create a single formatter instance for the lifetime of the page.
 // The Web Worker is lazily initialised on first use.
 const formatter = createFormatter({
   workerURL: chrome.runtime.getURL("src/worker.js"),
-});
-
+})
 
 // ── Format JSON with progress & cancellation ────────────────────────
 
@@ -44,57 +42,55 @@ const formatter = createFormatter({
  * @returns {{ promise: Promise<{output: string, errors: Array}>, cancel: () => void }}
  */
 export const formatWithCancel = (rawJson, opts = {}) => {
-  const controller = new AbortController();
+  const controller = new AbortController()
 
   const promise = formatter.format(rawJson, {
     indentSize: opts.indentSize ?? 2,
     signal: controller.signal,
     onProgress: opts.onProgress,
-  });
+  })
 
-  const cancel = () => controller.abort();
+  const cancel = () => controller.abort()
 
-  return { promise, cancel };
-};
-
+  return { promise, cancel }
+}
 
 // ── Example: format <pre> elements containing JSON ──────────────────
 
 const formatPreElements = async () => {
-  const preElements = document.querySelectorAll("pre");
+  const preElements = document.querySelectorAll("pre")
 
   for (const el of preElements) {
-    const text = el.textContent.trim();
+    const text = el.textContent.trim()
 
     // Quick heuristic: does it look like JSON?
-    if (!text.startsWith("{") && !text.startsWith("[")) continue;
+    if (!text.startsWith("{") && !text.startsWith("[")) continue
 
     try {
       const { promise } = formatWithCancel(text, {
         onProgress: (pct) => {
-          el.dataset.formatProgress = `${pct}%`;
+          el.dataset.formatProgress = `${pct}%`
         },
-      });
+      })
 
-      const { output, errors } = await promise;
-      el.textContent = output;
-      el.classList.add("json-formatted");
+      const { output, errors } = await promise
+      el.textContent = output
+      el.classList.add("json-formatted")
 
       // Surface structural errors to the UI without blocking display.
       // The formatted output is still shown — the user sees their JSON
       // alongside any problems found.
       if (errors.length > 0) {
-        el.classList.add("json-has-errors");
-        el.dataset.jsonErrors = JSON.stringify(errors);
-        console.warn("JSON format: structural errors found", errors);
+        el.classList.add("json-has-errors")
+        el.dataset.jsonErrors = JSON.stringify(errors)
+        console.warn("JSON format: structural errors found", errors)
       }
     } catch (err) {
-      if (err.name === "AbortError") return;
-      console.warn("JSON format failed:", err.message);
+      if (err.name === "AbortError") return
+      console.warn("JSON format failed:", err.message)
     }
   }
-};
-
+}
 
 // ── Example manifest.json ────────────────────────────────────────────
 

@@ -16,27 +16,26 @@
  */
 
 import {
-  CHAR_OPEN_BRACE,
-  CHAR_CLOSE_BRACE,
-  CHAR_OPEN_BRACKET,
-  CHAR_CLOSE_BRACKET,
-  CHAR_COMMA,
-  CHAR_COLON,
-  CHAR_QUOTE,
   CHAR_BACKSLASH,
+  CHAR_CLOSE_BRACE,
+  CHAR_CLOSE_BRACKET,
+  CHAR_COLON,
+  CHAR_COMMA,
+  CHAR_CR,
+  CHAR_NEWLINE,
+  CHAR_OPEN_BRACE,
+  CHAR_OPEN_BRACKET,
+  CHAR_QUOTE,
   CHAR_SPACE,
   CHAR_TAB,
-  CHAR_NEWLINE,
-  CHAR_CR,
-  NEWLINE_BYTE,
-  SPACE_BYTE,
   COLON_BYTE,
-  DEFAULT_INDENT_SIZE,
   DEFAULT_INDENT_CHAR,
+  DEFAULT_INDENT_SIZE,
   MAX_CACHED_DEPTH,
+  NEWLINE_BYTE,
   OUTPUT_BUFFER_SIZE,
-} from "./constants.js";
-
+  SPACE_BYTE,
+} from "./constants.js"
 
 // ── Indent cache ─────────────────────────────────────────────────────
 
@@ -54,16 +53,15 @@ export const buildIndentCache = (
   indentChar = DEFAULT_INDENT_CHAR,
   maxDepth = MAX_CACHED_DEPTH,
 ) => {
-  const cache = new Array(maxDepth + 1);
+  const cache = new Array(maxDepth + 1)
   for (let d = 0; d <= maxDepth; d++) {
-    const len = d * indentSize;
-    const buf = new Uint8Array(len);
-    buf.fill(indentChar);
-    cache[d] = buf;
+    const len = d * indentSize
+    const buf = new Uint8Array(len)
+    buf.fill(indentChar)
+    cache[d] = buf
   }
-  return cache;
-};
-
+  return cache
+}
 
 // ── Output buffer ────────────────────────────────────────────────────
 
@@ -76,74 +74,70 @@ export const buildIndentCache = (
  * @returns {{ write, writeByte, writeBytes, flush, getOutput }}
  */
 export const createOutputBuffer = (initialSize = OUTPUT_BUFFER_SIZE) => {
-  let buffer = new Uint8Array(initialSize);
-  let position = 0;
-  const chunks = [];
+  let buffer = new Uint8Array(initialSize)
+  let position = 0
+  const chunks = []
 
   const ensureCapacity = (needed) => {
-    if (position + needed <= buffer.length) return;
+    if (position + needed <= buffer.length) return
     // Flush current buffer and start a new one.
-    chunks.push(buffer.slice(0, position));
-    const nextSize = Math.max(initialSize, needed);
-    buffer = new Uint8Array(nextSize);
-    position = 0;
-  };
+    chunks.push(buffer.slice(0, position))
+    const nextSize = Math.max(initialSize, needed)
+    buffer = new Uint8Array(nextSize)
+    position = 0
+  }
 
   const writeByte = (byte) => {
-    ensureCapacity(1);
-    buffer[position++] = byte;
-  };
+    ensureCapacity(1)
+    buffer[position++] = byte
+  }
 
   const writeBytes = (bytes) => {
-    ensureCapacity(bytes.length);
-    buffer.set(bytes, position);
-    position += bytes.length;
-  };
+    ensureCapacity(bytes.length)
+    buffer.set(bytes, position)
+    position += bytes.length
+  }
 
   /** Copy a region of the *input* array directly to output. */
   const writeSlice = (src, start, end) => {
-    const len = end - start;
-    if (len <= 0) return;
-    ensureCapacity(len);
-    buffer.set(src.subarray(start, end), position);
-    position += len;
-  };
+    const len = end - start
+    if (len <= 0) return
+    ensureCapacity(len)
+    buffer.set(src.subarray(start, end), position)
+    position += len
+  }
 
   /** Concatenate all accumulated chunks into a single Uint8Array. */
   const flush = () => {
-    chunks.push(buffer.slice(0, position));
-    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
+    chunks.push(buffer.slice(0, position))
+    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0)
+    const result = new Uint8Array(totalLength)
+    let offset = 0
     for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
+      result.set(chunk, offset)
+      offset += chunk.length
     }
     // Reset state for potential reuse.
-    chunks.length = 0;
-    buffer = new Uint8Array(initialSize);
-    position = 0;
-    return result;
-  };
+    chunks.length = 0
+    buffer = new Uint8Array(initialSize)
+    position = 0
+    return result
+  }
 
-  return { writeByte, writeBytes, writeSlice, flush };
-};
-
+  return { writeByte, writeBytes, writeSlice, flush }
+}
 
 // ── Whitespace helpers ───────────────────────────────────────────────
 
 const isWhitespace = (byte) =>
-  byte === CHAR_SPACE ||
-  byte === CHAR_TAB ||
-  byte === CHAR_NEWLINE ||
-  byte === CHAR_CR;
+  byte === CHAR_SPACE
+  || byte === CHAR_TAB
+  || byte === CHAR_NEWLINE
+  || byte === CHAR_CR
 
-const isStructuralOpen = (byte) =>
-  byte === CHAR_OPEN_BRACE || byte === CHAR_OPEN_BRACKET;
+const isStructuralOpen = (byte) => byte === CHAR_OPEN_BRACE || byte === CHAR_OPEN_BRACKET
 
-const isStructuralClose = (byte) =>
-  byte === CHAR_CLOSE_BRACE || byte === CHAR_CLOSE_BRACKET;
-
+const isStructuralClose = (byte) => byte === CHAR_CLOSE_BRACE || byte === CHAR_CLOSE_BRACKET
 
 // ── Core formatting engine ───────────────────────────────────────────
 
@@ -183,18 +177,18 @@ export const createFormatterState = ({
   absoluteOffset: 0,
   errors: [],
   indents: buildIndentCache(indentSize, indentChar),
-});
+})
 
 /**
  * Write a newline followed by the indent for the given depth.
  */
 const emitNewlineAndIndent = (out, indents, depth) => {
-  out.writeByte(NEWLINE_BYTE);
+  out.writeByte(NEWLINE_BYTE)
   const indent = depth < indents.length
     ? indents[depth]
-    : indents[indents.length - 1]; // Graceful fallback for very deep JSON
-  out.writeBytes(indent);
-};
+    : indents[indents.length - 1] // Graceful fallback for very deep JSON
+  out.writeBytes(indent)
+}
 
 /**
  * Format a chunk of raw JSON bytes.
@@ -210,85 +204,85 @@ const emitNewlineAndIndent = (out, indents, depth) => {
  * @param {Object}          out    - Output buffer from createOutputBuffer.
  */
 export const formatChunk = (input, start, end, state, out) => {
-  let { depth, inString, escaped } = state;
-  const { indents, errors, absoluteOffset } = state;
+  let { depth, inString, escaped } = state
+  const { indents, errors, absoluteOffset } = state
 
   // Local aliases to avoid repeated property lookups in the loop.
-  const writeByte = out.writeByte;
-  const writeBytes = out.writeBytes;
+  const writeByte = out.writeByte
+  const writeBytes = out.writeBytes
 
-  let i = start;
+  let i = start
 
   while (i < end) {
-    const byte = input[i];
+    const byte = input[i]
 
     // ── Inside a JSON string ───────────────────────────────────
     if (inString) {
       if (escaped) {
         // Previous byte was a backslash — this byte is consumed
         // as part of the escape sequence regardless of its value.
-        writeByte(byte);
-        escaped = false;
-        i++;
-        continue;
+        writeByte(byte)
+        escaped = false
+        i++
+        continue
       }
 
       if (byte === CHAR_BACKSLASH) {
-        writeByte(byte);
-        escaped = true;
-        i++;
-        continue;
+        writeByte(byte)
+        escaped = true
+        i++
+        continue
       }
 
       if (byte === CHAR_QUOTE) {
         // Closing quote — leave string mode.
-        writeByte(byte);
-        inString = false;
-        i++;
-        continue;
+        writeByte(byte)
+        inString = false
+        i++
+        continue
       }
 
       // Regular character inside a string — batch-copy to output.
       // Scan ahead for the next special character to copy a run at once.
-      let runEnd = i + 1;
+      let runEnd = i + 1
       while (
-        runEnd < end &&
-        input[runEnd] !== CHAR_QUOTE &&
-        input[runEnd] !== CHAR_BACKSLASH
+        runEnd < end
+        && input[runEnd] !== CHAR_QUOTE
+        && input[runEnd] !== CHAR_BACKSLASH
       ) {
-        runEnd++;
+        runEnd++
       }
-      out.writeSlice(input, i, runEnd);
-      i = runEnd;
-      continue;
+      out.writeSlice(input, i, runEnd)
+      i = runEnd
+      continue
     }
 
     // ── Outside a string ───────────────────────────────────────
 
     // Skip existing whitespace in the input.
     if (isWhitespace(byte)) {
-      i++;
-      continue;
+      i++
+      continue
     }
 
     // Opening brace/bracket.
     if (isStructuralOpen(byte)) {
-      writeByte(byte);
+      writeByte(byte)
 
       // Peek ahead (skipping whitespace) to see if the container is empty.
-      let peek = i + 1;
-      while (peek < end && isWhitespace(input[peek])) peek++;
+      let peek = i + 1
+      while (peek < end && isWhitespace(input[peek])) peek++
 
       if (peek < end && isStructuralClose(input[peek])) {
         // Empty container — emit close immediately, no newline.
-        writeByte(input[peek]);
-        i = peek + 1;
+        writeByte(input[peek])
+        i = peek + 1
       } else {
-        depth++;
-        emitNewlineAndIndent(out, indents, depth);
-        i++;
+        depth++
+        emitNewlineAndIndent(out, indents, depth)
+        i++
       }
-      continue;
+      continue
     }
 
     // Closing brace/bracket.
@@ -300,69 +294,69 @@ export const formatChunk = (input, start, end, state, out) => {
           type: "unbalanced_close",
           message: `Unexpected "${String.fromCharCode(byte)}" with no matching open`,
           offset: absoluteOffset + (i - start),
-        });
-        i++;
-        continue;
+        })
+        i++
+        continue
       }
-      depth--;
-      emitNewlineAndIndent(out, indents, depth);
-      writeByte(byte);
-      i++;
-      continue;
+      depth--
+      emitNewlineAndIndent(out, indents, depth)
+      writeByte(byte)
+      i++
+      continue
     }
 
     // Comma — newline + indent after.
     if (byte === CHAR_COMMA) {
-      writeByte(byte);
-      emitNewlineAndIndent(out, indents, depth);
-      i++;
-      continue;
+      writeByte(byte)
+      emitNewlineAndIndent(out, indents, depth)
+      i++
+      continue
     }
 
     // Colon — emit ": ".
     if (byte === CHAR_COLON) {
-      writeByte(COLON_BYTE);
-      writeByte(SPACE_BYTE);
-      i++;
-      continue;
+      writeByte(COLON_BYTE)
+      writeByte(SPACE_BYTE)
+      i++
+      continue
     }
 
     // Opening quote — enter string mode.
     if (byte === CHAR_QUOTE) {
-      writeByte(byte);
-      inString = true;
-      i++;
-      continue;
+      writeByte(byte)
+      inString = true
+      i++
+      continue
     }
 
     // Everything else (digits, letters for true/false/null).
     // Batch-copy until we hit a structural or whitespace character.
-    let valueEnd = i + 1;
+    let valueEnd = i + 1
     while (valueEnd < end) {
-      const vb = input[valueEnd];
+      const vb = input[valueEnd]
       if (
-        isWhitespace(vb) ||
-        vb === CHAR_COMMA ||
-        vb === CHAR_COLON ||
-        vb === CHAR_CLOSE_BRACE ||
-        vb === CHAR_CLOSE_BRACKET ||
-        vb === CHAR_OPEN_BRACE ||
-        vb === CHAR_OPEN_BRACKET
+        isWhitespace(vb)
+        || vb === CHAR_COMMA
+        || vb === CHAR_COLON
+        || vb === CHAR_CLOSE_BRACE
+        || vb === CHAR_CLOSE_BRACKET
+        || vb === CHAR_OPEN_BRACE
+        || vb === CHAR_OPEN_BRACKET
       ) {
-        break;
+        break
       }
-      valueEnd++;
+      valueEnd++
     }
-    out.writeSlice(input, i, valueEnd);
-    i = valueEnd;
+    out.writeSlice(input, i, valueEnd)
+    i = valueEnd
   }
 
   // Write state back for the next chunk.
-  state.depth = depth;
-  state.inString = inString;
-  state.escaped = escaped;
-  state.absoluteOffset = absoluteOffset + (end - start);
-};
+  state.depth = depth
+  state.inString = inString
+  state.escaped = escaped
+  state.absoluteOffset = absoluteOffset + (end - start)
+}
 
 /**
  * Finalize formatting after the last chunk has been processed.
@@ -378,17 +372,16 @@ export const finalizeFormat = (state) => {
       type: "unterminated_string",
       message: "Input ended while inside a string",
       offset: state.absoluteOffset,
-    });
+    })
   }
   if (state.depth > 0) {
     state.errors.push({
       type: "unclosed_container",
       message: `Input ended with ${state.depth} unclosed container(s)`,
       offset: state.absoluteOffset,
-    });
+    })
   }
-};
-
+}
 
 // ── Public API ───────────────────────────────────────────────────────
 
@@ -413,12 +406,12 @@ export const finalizeFormat = (state) => {
  * @returns {FormatBytesResult}
  */
 export const formatBytes = (input, opts = {}) => {
-  const state = createFormatterState(opts);
-  const out = createOutputBuffer(Math.max(input.length * 2, OUTPUT_BUFFER_SIZE));
-  formatChunk(input, 0, input.length, state, out);
-  finalizeFormat(state);
-  return { output: out.flush(), errors: state.errors };
-};
+  const state = createFormatterState(opts)
+  const out = createOutputBuffer(Math.max(input.length * 2, OUTPUT_BUFFER_SIZE))
+  formatChunk(input, 0, input.length, state, out)
+  finalizeFormat(state)
+  return { output: out.flush(), errors: state.errors }
+}
 
 /**
  * Convenience wrapper: string in → string out.
@@ -428,9 +421,9 @@ export const formatBytes = (input, opts = {}) => {
  * @returns {FormatStringResult}
  */
 export const formatString = (jsonString, opts = {}) => {
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  const input = encoder.encode(jsonString);
-  const { output, errors } = formatBytes(input, opts);
-  return { output: decoder.decode(output), errors };
-};
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+  const input = encoder.encode(jsonString)
+  const { output, errors } = formatBytes(input, opts)
+  return { output: decoder.decode(output), errors }
+}
