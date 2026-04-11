@@ -1,8 +1,11 @@
 # extension-e2e-testing Specification
 
 ## Purpose
+
 TBD - created by archiving change add-extension-e2e-tests. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Unpacked extension loads in Chromium
 
 The e2e suite SHALL launch a Chromium instance with the repository's unpacked extension loaded, such that `content.js` runs on pages served by the fixture HTTP server.
@@ -104,4 +107,3 @@ The repository SHALL expose the e2e suite as `npm run test:e2e` and keep it sepa
 - **THEN** a local HTTP server MUST be started in Playwright's global setup serving the `e2e/fixtures/` directory
 - **AND** the server MUST be stopped in global teardown
 - **AND** tests MUST read the server base URL from a single source (e.g. `process.env.E2E_BASE_URL`) rather than hard-coding a port
-

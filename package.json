@@ -11,7 +11,7 @@
     "fmt": "dprint fmt"
   },
   "devDependencies": {
-    "@playwright/test": "~1.56.0",
+    "@playwright/test": "^1.59.1",
     "dprint": "^0.54.0"
   },
   "private": true
