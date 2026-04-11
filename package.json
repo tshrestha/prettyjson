@@ -1,0 +1,11 @@
+{
+  "name": "prettyjson",
+  "version": "1.0.0",
+  "description": "High-performance streaming JSON pretty-printer for browsers and Chrome extensions.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test src/formatter.test.js"
+  },
+  "private": true
+}
