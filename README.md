@@ -112,12 +112,33 @@ thread.
 
 ## Running Tests
 
+### Unit tests
+
 ```bash
 node --test src/formatter.test.js
 ```
 
 65 tests covering: primitives, objects, arrays, deep nesting, string escaping (quotes, backslashes, unicode), whitespace
 normalisation, edge cases, configurable indent, output buffer mechanics, indent cache, and a 1MB performance benchmark.
+
+### End-to-end tests
+
+The `e2e/` suite loads the unpacked extension into a real Chromium instance via Playwright and verifies that the
+content script pretty-prints `<pre>` blocks on a set of fixture pages served by a local HTTP server.
+
+```bash
+npm install
+npx playwright install chromium
+npm run test:e2e
+```
+
+The runner is pinned to `@playwright/test ~1.56.0` and defaults to **headed** mode. Chromium's legacy headless runtime
+has historically misbehaved with MV3 extensions, so the headed default trades a visible window for far less flake. To
+run in the background (for example on CI), set `HEADLESS=1`:
+
+```bash
+HEADLESS=1 npm run test:e2e
+```
 
 ## API Reference
 

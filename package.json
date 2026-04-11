@@ -7,9 +7,11 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test src/formatter.test.js",
+    "test:e2e": "playwright test --config e2e/playwright.config.js",
     "fmt": "dprint fmt"
   },
   "devDependencies": {
+    "@playwright/test": "~1.56.0",
     "dprint": "^0.54.0"
   },
   "private": true

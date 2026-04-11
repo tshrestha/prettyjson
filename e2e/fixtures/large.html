@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>large</title></head>
+<body>
+<pre id="target"></pre>
+<script>
+  // Build a JSON payload of at least 100 KB synchronously, before
+  // document_end, so the extension's content script sees a populated <pre>.
+  const items = []
+  for (let i = 0; i < 4000; i++) {
+    items.push({ id: i, name: "item-" + i, tags: ["alpha", "beta", "gamma"], active: (i % 2) === 0 })
+  }
+  const payload = JSON.stringify({ items })
+  document.getElementById("target").textContent = payload
+</script>
+</body>
+</html>
