@@ -14,7 +14,13 @@
 
 import { processInChunks } from "./chunker.js"
 import { OUTPUT_BUFFER_SIZE } from "./constants.js"
-import { createFormatterState, createOutputBuffer, finalizeFormat, formatChunk } from "./formatter.js"
+import {
+  createFormatterState,
+  createOutputBuffer,
+  createTokenBuffer,
+  finalizeFormat,
+  formatChunk,
+} from "./formatter.js"
 
 // ── Active job tracking (supports cancellation) ──────────────────────
 
@@ -60,12 +66,14 @@ const handleFormat = async (id, payload, options = {}) => {
     const outputBuffer = createOutputBuffer(
       Math.max(input.length * 2, OUTPUT_BUFFER_SIZE),
     )
+    const tokens = options.tokens === true ? createTokenBuffer() : null
 
     const result = await processInChunks({
       input,
       state,
       outputBuffer,
       processChunk: formatChunk,
+      tokens,
       chunkSize: options.chunkSize,
       signal: controller.signal,
       onProgress: (bytesProcessed, totalBytes) => {
@@ -75,14 +83,27 @@ const handleFormat = async (id, payload, options = {}) => {
 
     // Finalize: catches unclosed containers and unterminated strings
     // that can only be detected once we know there's no more input.
-    finalizeFormat(state)
+    // Also flushes any scalar token that was deferred across a chunk
+    // boundary without reaching a delimiter.
+    finalizeFormat(state, outputBuffer, tokens)
 
     // Transfer the result buffer to avoid copying.
     const resultBuffer = result.buffer
-    self.postMessage(
-      { type: "result", id, payload: resultBuffer, errors: state.errors },
-      [resultBuffer],
-    )
+    const message = { type: "result", id, payload: resultBuffer, errors: state.errors }
+    const transfer = [resultBuffer]
+
+    if (tokens) {
+      const snapshot = tokens.snapshot()
+      message.tokens = {
+        offsets: snapshot.offsets,
+        kinds: snapshot.kinds,
+        count: snapshot.count,
+      }
+      transfer.push(snapshot.offsets.buffer)
+      transfer.push(snapshot.kinds.buffer)
+    }
+
+    self.postMessage(message, transfer)
   } catch (err) {
     if (err.name === "AbortError") {
       // Cancellation — no response needed, the caller already knows.

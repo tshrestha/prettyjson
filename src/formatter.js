@@ -31,10 +31,17 @@ import {
   COLON_BYTE,
   DEFAULT_INDENT_CHAR,
   DEFAULT_INDENT_SIZE,
+  INITIAL_TOKEN_CAPACITY,
   MAX_CACHED_DEPTH,
   NEWLINE_BYTE,
   OUTPUT_BUFFER_SIZE,
   SPACE_BYTE,
+  TOKEN_BOOLEAN,
+  TOKEN_KEY,
+  TOKEN_NULL,
+  TOKEN_NUMBER,
+  TOKEN_PUNCT,
+  TOKEN_STRING,
 } from "./constants.js"
 
 // ── Indent cache ─────────────────────────────────────────────────────
@@ -76,6 +83,14 @@ export const buildIndentCache = (
 export const createOutputBuffer = (initialSize = OUTPUT_BUFFER_SIZE) => {
   let buffer = new Uint8Array(initialSize)
   let position = 0
+  // UTF-16 code unit offset into the DECODED output string. Tracked
+  // alongside the byte position so token offsets can be reported in
+  // units that match JavaScript string indexing (which callers use to
+  // slice tokens out of the decoded string via `substring`). For
+  // pure-ASCII content — the vast majority of real JSON — this moves
+  // in lockstep with `position`. Non-ASCII string values (CJK, emoji,
+  // etc.) are the only case where they diverge.
+  let utf16Cursor = 0
   const chunks = []
 
   const ensureCapacity = (needed) => {
@@ -87,15 +102,22 @@ export const createOutputBuffer = (initialSize = OUTPUT_BUFFER_SIZE) => {
     position = 0
   }
 
+  // writeByte is only called by the formatter with ASCII bytes
+  // (structural chars, indent, space, newline, quote). Each ASCII byte
+  // contributes exactly one UTF-16 code unit.
   const writeByte = (byte) => {
     ensureCapacity(1)
     buffer[position++] = byte
+    utf16Cursor++
   }
 
+  // writeBytes is called with the pre-allocated indent arrays, which
+  // are always ASCII space characters. Bulk increment is safe.
   const writeBytes = (bytes) => {
     ensureCapacity(bytes.length)
     buffer.set(bytes, position)
     position += bytes.length
+    utf16Cursor += bytes.length
   }
 
   /** Copy a region of the *input* array directly to output. */
@@ -105,7 +127,24 @@ export const createOutputBuffer = (initialSize = OUTPUT_BUFFER_SIZE) => {
     ensureCapacity(len)
     buffer.set(src.subarray(start, end), position)
     position += len
+    // writeSlice is the only path that can see non-ASCII bytes — it
+    // copies string content (and unquoted scalars) from the input.
+    // Walk the bytes and increment utf16Cursor per UTF-8 code point:
+    //   1-byte (0xxxxxxx) → +1
+    //   2-byte lead (110xxxxx) → +1
+    //   3-byte lead (1110xxxx) → +1
+    //   4-byte lead (11110xxx) → +2 (surrogate pair in UTF-16)
+    //   continuation (10xxxxxx) → +0
+    for (let k = start; k < end; k++) {
+      const b = src[k]
+      if ((b & 0xC0) !== 0x80) {
+        utf16Cursor += (b >= 0xF0) ? 2 : 1
+      }
+    }
   }
+
+  /** Current UTF-16 code unit offset into the decoded output. */
+  const getUtf16Cursor = () => utf16Cursor
 
   /** Concatenate all accumulated chunks into a single Uint8Array. */
   const flush = () => {
@@ -121,10 +160,71 @@ export const createOutputBuffer = (initialSize = OUTPUT_BUFFER_SIZE) => {
     chunks.length = 0
     buffer = new Uint8Array(initialSize)
     position = 0
+    utf16Cursor = 0
     return result
   }
 
-  return { writeByte, writeBytes, writeSlice, flush }
+  return { writeByte, writeBytes, writeSlice, flush, getUtf16Cursor }
+}
+
+// ── Token buffer ─────────────────────────────────────────────────────
+
+/**
+ * A growable buffer of `(start, end, kind)` tuples stored as two
+ * parallel typed arrays — `offsets: Uint32Array` (pairs of UTF-16
+ * indices into the decoded output) and `kinds: Uint8Array` (one of the
+ * `TOKEN_*` enum values). Zero per-token object allocation; buffers
+ * double on overflow to mirror the output buffer growth policy.
+ *
+ * @param {number} initialCapacity - Initial token count capacity.
+ */
+export const createTokenBuffer = (initialCapacity = INITIAL_TOKEN_CAPACITY) => {
+  let offsets = new Uint32Array(initialCapacity * 2)
+  let kinds = new Uint8Array(initialCapacity)
+  let count = 0
+
+  const grow = () => {
+    const newCapacity = kinds.length * 2
+    const newOffsets = new Uint32Array(newCapacity * 2)
+    const newKinds = new Uint8Array(newCapacity)
+    newOffsets.set(offsets)
+    newKinds.set(kinds)
+    offsets = newOffsets
+    kinds = newKinds
+  }
+
+  const push = (kind, start, end) => {
+    if (count >= kinds.length) grow()
+    offsets[count * 2] = start
+    offsets[count * 2 + 1] = end
+    kinds[count] = kind
+    count++
+  }
+
+  /**
+   * Overwrite the most recent token's kind. Used by the key-vs-string
+   * disambiguation: the formatter emits every string as `TOKEN_STRING`
+   * on the closing quote, then flips it to `TOKEN_KEY` when the next
+   * meaningful byte turns out to be a `:`.
+   */
+  const flipLastKind = (kind) => {
+    if (count > 0) kinds[count - 1] = kind
+  }
+
+  /**
+   * Snapshot the buffer into tight-fitting typed arrays that can be
+   * transferred across a Worker boundary. The returned arrays are
+   * copies — the internal buffers continue to be usable.
+   */
+  const snapshot = () => ({
+    offsets: offsets.slice(0, count * 2),
+    kinds: kinds.slice(0, count),
+    count,
+  })
+
+  const getCount = () => count
+
+  return { push, flipLastKind, snapshot, getCount }
 }
 
 // ── Whitespace helpers ───────────────────────────────────────────────
@@ -151,12 +251,16 @@ const isStructuralClose = (byte) => byte === CHAR_CLOSE_BRACE || byte === CHAR_C
 
 /**
  * @typedef {Object} FormatterState
- * @property {number}        depth          - Current nesting depth.
- * @property {boolean}       inString       - Whether we're inside a JSON string.
- * @property {boolean}       escaped        - Whether the previous char was a backslash.
- * @property {number}        absoluteOffset - Byte offset at the start of the current chunk.
- * @property {FormatError[]} errors         - Accumulated structural errors.
- * @property {Uint8Array[]}  indents        - Pre-computed indent byte arrays.
+ * @property {number}        depth                    - Current nesting depth.
+ * @property {boolean}       inString                 - Whether we're inside a JSON string.
+ * @property {boolean}       escaped                  - Whether the previous char was a backslash.
+ * @property {number}        absoluteOffset           - Byte offset at the start of the current chunk.
+ * @property {FormatError[]} errors                   - Accumulated structural errors.
+ * @property {Uint8Array[]}  indents                  - Pre-computed indent byte arrays.
+ * @property {number}        stringTokenStart         - UTF-16 offset of the current string's opening quote, when inString.
+ * @property {boolean}       pendingKey               - True if the most recent token is a string awaiting key/string disambiguation.
+ * @property {number}        pendingScalarStart       - UTF-16 offset of an in-progress unquoted scalar that spilled across a chunk boundary; -1 if none.
+ * @property {number}        pendingScalarFirstByte   - First byte of the in-progress scalar (for kind determination on flush).
  */
 
 /**
@@ -177,6 +281,10 @@ export const createFormatterState = ({
   absoluteOffset: 0,
   errors: [],
   indents: buildIndentCache(indentSize, indentChar),
+  stringTokenStart: 0,
+  pendingKey: false,
+  pendingScalarStart: -1,
+  pendingScalarFirstByte: 0,
 })
 
 /**
@@ -191,21 +299,36 @@ const emitNewlineAndIndent = (out, indents, depth) => {
 }
 
 /**
+ * Decide the token kind of an unquoted scalar from its first byte.
+ * `t`/`f` → boolean, `n` → null, everything else → number.
+ */
+const scalarKindFromFirstByte = (first) => {
+  if (first === 0x74 || first === 0x66) return TOKEN_BOOLEAN
+  if (first === 0x6E) return TOKEN_NULL
+  return TOKEN_NUMBER
+}
+
+/**
  * Format a chunk of raw JSON bytes.
  *
  * This is the HOT PATH. Every micro-optimization here matters.
  * The function mutates `state` in place for performance (the public API
  * wraps this to preserve a clean functional interface).
  *
- * @param {Uint8Array}      input  - Raw JSON bytes.
- * @param {number}          start  - Start offset in `input`.
- * @param {number}          end    - End offset (exclusive) in `input`.
- * @param {FormatterState}  state  - Mutable formatter state.
- * @param {Object}          out    - Output buffer from createOutputBuffer.
+ * @param {Uint8Array}      input    - Raw JSON bytes.
+ * @param {number}          start    - Start offset in `input`.
+ * @param {number}          end      - End offset (exclusive) in `input`.
+ * @param {FormatterState}  state    - Mutable formatter state.
+ * @param {Object}          out      - Output buffer from createOutputBuffer.
+ * @param {Object}          [tokens] - Optional token buffer from createTokenBuffer.
+ *                                     When provided, the formatter emits a token
+ *                                     per JSON syntactic element alongside the
+ *                                     output bytes. Omit to pay zero cost.
  */
-export const formatChunk = (input, start, end, state, out) => {
+export const formatChunk = (input, start, end, state, out, tokens = null) => {
   let { depth, inString, escaped } = state
   const { indents, errors, absoluteOffset } = state
+  let { stringTokenStart, pendingKey, pendingScalarStart, pendingScalarFirstByte } = state
 
   // Local aliases to avoid repeated property lookups in the loop.
   const writeByte = out.writeByte
@@ -238,6 +361,12 @@ export const formatChunk = (input, start, end, state, out) => {
         // Closing quote — leave string mode.
         writeByte(byte)
         inString = false
+        if (tokens) {
+          // Emit as TOKEN_STRING by default; the next meaningful byte
+          // will flip this to TOKEN_KEY if it's a `:`.
+          tokens.push(TOKEN_STRING, stringTokenStart, out.getUtf16Cursor())
+          pendingKey = true
+        }
         i++
         continue
       }
@@ -265,9 +394,54 @@ export const formatChunk = (input, start, end, state, out) => {
       continue
     }
 
+    // At this point `byte` is the next meaningful (non-whitespace)
+    // byte outside a string. Before branching on it, we resolve any
+    // "pending" state carried across from a previous token:
+    //
+    // 1. Key/string disambiguation: if the most recent token is a
+    //    string awaiting classification and this byte is a `:`, flip
+    //    the token kind to TOKEN_KEY. Either way the pending flag is
+    //    cleared.
+    if (tokens && pendingKey) {
+      if (byte === CHAR_COLON) tokens.flipLastKind(TOKEN_KEY)
+      pendingKey = false
+    }
+    //
+    // 2. Pending scalar: an unquoted scalar (number / true / false /
+    //    null) that ran to the end of the previous chunk without
+    //    reaching a delimiter is deferred so the two halves can be
+    //    merged into a single token. If the current byte is NOT a
+    //    scalar-continuation character, the deferred scalar really did
+    //    end at the chunk boundary — flush it as a complete token now.
+    if (tokens && pendingScalarStart >= 0) {
+      // Scalar-continuation bytes are anything that isn't whitespace,
+      // structural punctuation, or a quote. If the current byte is a
+      // continuation, leave the deferred state alone — the scan below
+      // will include it in the same token.
+      if (
+        isWhitespace(byte)
+        || byte === CHAR_COMMA
+        || byte === CHAR_COLON
+        || byte === CHAR_CLOSE_BRACE
+        || byte === CHAR_CLOSE_BRACKET
+        || byte === CHAR_OPEN_BRACE
+        || byte === CHAR_OPEN_BRACKET
+        || byte === CHAR_QUOTE
+      ) {
+        tokens.push(
+          scalarKindFromFirstByte(pendingScalarFirstByte),
+          pendingScalarStart,
+          out.getUtf16Cursor(),
+        )
+        pendingScalarStart = -1
+      }
+    }
+
     // Opening brace/bracket.
     if (isStructuralOpen(byte)) {
+      const punctStart = tokens ? out.getUtf16Cursor() : 0
       writeByte(byte)
+      if (tokens) tokens.push(TOKEN_PUNCT, punctStart, punctStart + 1)
 
       // Peek ahead (skipping whitespace) to see if the container is empty.
       let peek = i + 1
@@ -275,7 +449,9 @@ export const formatChunk = (input, start, end, state, out) => {
 
       if (peek < end && isStructuralClose(input[peek])) {
         // Empty container — emit close immediately, no newline.
+        const closeStart = tokens ? out.getUtf16Cursor() : 0
         writeByte(input[peek])
+        if (tokens) tokens.push(TOKEN_PUNCT, closeStart, closeStart + 1)
         i = peek + 1
       } else {
         depth++
@@ -300,22 +476,28 @@ export const formatChunk = (input, start, end, state, out) => {
       }
       depth--
       emitNewlineAndIndent(out, indents, depth)
+      const punctStart = tokens ? out.getUtf16Cursor() : 0
       writeByte(byte)
+      if (tokens) tokens.push(TOKEN_PUNCT, punctStart, punctStart + 1)
       i++
       continue
     }
 
     // Comma — newline + indent after.
     if (byte === CHAR_COMMA) {
+      const punctStart = tokens ? out.getUtf16Cursor() : 0
       writeByte(byte)
+      if (tokens) tokens.push(TOKEN_PUNCT, punctStart, punctStart + 1)
       emitNewlineAndIndent(out, indents, depth)
       i++
       continue
     }
 
-    // Colon — emit ": ".
+    // Colon — emit ": ". The token covers only the `:`, not the space.
     if (byte === CHAR_COLON) {
+      const punctStart = tokens ? out.getUtf16Cursor() : 0
       writeByte(COLON_BYTE)
+      if (tokens) tokens.push(TOKEN_PUNCT, punctStart, punctStart + 1)
       writeByte(SPACE_BYTE)
       i++
       continue
@@ -323,6 +505,7 @@ export const formatChunk = (input, start, end, state, out) => {
 
     // Opening quote — enter string mode.
     if (byte === CHAR_QUOTE) {
+      if (tokens) stringTokenStart = out.getUtf16Cursor()
       writeByte(byte)
       inString = true
       i++
@@ -331,6 +514,8 @@ export const formatChunk = (input, start, end, state, out) => {
 
     // Everything else (digits, letters for true/false/null).
     // Batch-copy until we hit a structural or whitespace character.
+    const valueStartUtf16 = tokens ? out.getUtf16Cursor() : 0
+    const valueFirstByte = input[i]
     let valueEnd = i + 1
     while (valueEnd < end) {
       const vb = input[valueEnd]
@@ -348,6 +533,26 @@ export const formatChunk = (input, start, end, state, out) => {
       valueEnd++
     }
     out.writeSlice(input, i, valueEnd)
+
+    if (tokens) {
+      if (valueEnd === end) {
+        // Ran out of chunk mid-scalar. Defer token emission so the
+        // next chunk can extend the range; the start-of-loop pending
+        // check will either flush it (if the next meaningful byte is
+        // a delimiter) or the "everything else" branch will resume
+        // scanning and produce a single merged token.
+        pendingScalarStart = valueStartUtf16
+        pendingScalarFirstByte = valueFirstByte
+      } else {
+        tokens.push(
+          scalarKindFromFirstByte(valueFirstByte),
+          valueStartUtf16,
+          out.getUtf16Cursor(),
+        )
+        pendingScalarStart = -1
+      }
+    }
+
     i = valueEnd
   }
 
@@ -356,6 +561,10 @@ export const formatChunk = (input, start, end, state, out) => {
   state.inString = inString
   state.escaped = escaped
   state.absoluteOffset = absoluteOffset + (end - start)
+  state.stringTokenStart = stringTokenStart
+  state.pendingKey = pendingKey
+  state.pendingScalarStart = pendingScalarStart
+  state.pendingScalarFirstByte = pendingScalarFirstByte
 }
 
 /**
@@ -365,8 +574,24 @@ export const formatChunk = (input, start, end, state, out) => {
  * that malformed output never masks a structural error.
  *
  * @param {FormatterState} state
+ * @param {Object}         [out]    - Output buffer (required if tokens were emitted).
+ * @param {Object}         [tokens] - Token buffer, if token emission was enabled.
  */
-export const finalizeFormat = (state) => {
+export const finalizeFormat = (state, out = null, tokens = null) => {
+  // Flush any unquoted scalar that was deferred across chunk boundaries
+  // and never followed by a delimiter — it ended with the input.
+  if (tokens && state.pendingScalarStart >= 0) {
+    tokens.push(
+      scalarKindFromFirstByte(state.pendingScalarFirstByte),
+      state.pendingScalarStart,
+      out.getUtf16Cursor(),
+    )
+    state.pendingScalarStart = -1
+  }
+  // A string token that was pending key/string disambiguation at EOF
+  // was never followed by a `:`, so it correctly stays as TOKEN_STRING.
+  state.pendingKey = false
+
   if (state.inString) {
     state.errors.push({
       type: "unterminated_string",
@@ -386,15 +611,24 @@ export const finalizeFormat = (state) => {
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
+ * @typedef {Object} TokenStream
+ * @property {Uint32Array} offsets - Flat pairs of [start, end) UTF-16 indices into the decoded output.
+ * @property {Uint8Array}  kinds   - One TOKEN_* value per token. Length === count.
+ * @property {number}      count   - Total number of tokens.
+ */
+
+/**
  * @typedef {Object} FormatBytesResult
  * @property {Uint8Array}    output - Formatted JSON bytes.
  * @property {FormatError[]} errors - Structural errors encountered. Empty on valid input.
+ * @property {TokenStream}   [tokens] - Present only when `opts.tokens === true`.
  */
 
 /**
  * @typedef {Object} FormatStringResult
  * @property {string}        output - Pretty-printed JSON string.
  * @property {FormatError[]} errors - Structural errors encountered. Empty on valid input.
+ * @property {TokenStream}   [tokens] - Present only when `opts.tokens === true`.
  */
 
 /**
@@ -403,14 +637,18 @@ export const finalizeFormat = (state) => {
  * @param {Uint8Array} input   - Raw JSON bytes (UTF-8 encoded).
  * @param {Object}     [opts]  - Formatting options.
  * @param {number}     [opts.indentSize=2]
+ * @param {boolean}    [opts.tokens=false] - Emit token classification alongside the output.
  * @returns {FormatBytesResult}
  */
 export const formatBytes = (input, opts = {}) => {
   const state = createFormatterState(opts)
   const out = createOutputBuffer(Math.max(input.length * 2, OUTPUT_BUFFER_SIZE))
-  formatChunk(input, 0, input.length, state, out)
-  finalizeFormat(state)
-  return { output: out.flush(), errors: state.errors }
+  const tokens = opts.tokens === true ? createTokenBuffer() : null
+  formatChunk(input, 0, input.length, state, out, tokens)
+  finalizeFormat(state, out, tokens)
+  const result = { output: out.flush(), errors: state.errors }
+  if (tokens) result.tokens = tokens.snapshot()
+  return result
 }
 
 /**
@@ -424,6 +662,8 @@ export const formatString = (jsonString, opts = {}) => {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
   const input = encoder.encode(jsonString)
-  const { output, errors } = formatBytes(input, opts)
-  return { output: decoder.decode(output), errors }
+  const result = formatBytes(input, opts)
+  const decoded = { output: decoder.decode(result.output), errors: result.errors }
+  if (result.tokens) decoded.tokens = result.tokens
+  return decoded
 }

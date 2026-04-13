@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>highlight-large</title></head>
+<body>
+<pre id="target"></pre>
+<script>
+  // ~40k tokens — comfortably under the HIGHLIGHT_TOKEN_THRESHOLD (250k)
+  // and large enough to exercise the worker path.
+  const items = []
+  for (let i = 0; i < 1500; i++) {
+    items.push({ id: i, name: "item-" + i, value: i * 1.5, active: (i % 2) === 0 })
+  }
+  document.getElementById("target").textContent = JSON.stringify({ items })
+</script>
+</body>
+</html>

@@ -23,10 +23,12 @@ import { getEventListeners } from "node:events"
 import { after, before, describe, it } from "node:test"
 import { processInChunks } from "./chunker.js"
 import { createFormatter } from "./client.js"
+import { TOKEN_BOOLEAN, TOKEN_KEY, TOKEN_NULL, TOKEN_NUMBER, TOKEN_PUNCT, TOKEN_STRING } from "./constants.js"
 import {
   buildIndentCache,
   createFormatterState,
   createOutputBuffer,
+  createTokenBuffer,
   formatBytes,
   formatChunk,
   formatString,
@@ -462,6 +464,207 @@ class MockWorker {
     this.terminated = true
   }
 }
+
+// ── 15. Token emission ───────────────────────────────────────────────
+
+/** Slice a token's [start, end) out of the decoded output string. */
+const tokenText = (decoded, offsets, i) => decoded.substring(offsets[i * 2], offsets[i * 2 + 1])
+
+describe("Token emission", () => {
+  it("default calls do not return a tokens field", () => {
+    const result = formatString("{\"a\":1}")
+    assert.equal(result.tokens, undefined)
+    assert.ok("output" in result)
+    assert.ok("errors" in result)
+  })
+
+  it("default byte-level call is byte-identical with and without tokens", () => {
+    const input = encoder.encode("{\"name\":\"Alice\",\"age\":30,\"tags\":[\"a\",\"b\"]}")
+    const withTokens = formatBytes(input, { tokens: true })
+    const withoutTokens = formatBytes(input)
+    assert.deepEqual(withTokens.output, withoutTokens.output)
+    assert.ok(withTokens.tokens, "withTokens.tokens should be present")
+    assert.equal(withoutTokens.tokens, undefined)
+  })
+
+  it("opt-in returns parallel typed arrays", () => {
+    const { tokens } = formatString("{\"a\":1}", { tokens: true })
+    assert.ok(tokens.offsets instanceof Uint32Array)
+    assert.ok(tokens.kinds instanceof Uint8Array)
+    assert.equal(typeof tokens.count, "number")
+    assert.equal(tokens.offsets.length, tokens.count * 2)
+    assert.ok(tokens.kinds.length >= tokens.count)
+  })
+
+  it("emits every token kind on a representative input", () => {
+    const { output, tokens } = formatString(
+      "{\"s\":\"v\",\"n\":1,\"b\":true,\"z\":null,\"a\":[1,2]}",
+      { tokens: true },
+    )
+    // Collect unique kinds.
+    const kindsSeen = new Set()
+    for (let i = 0; i < tokens.count; i++) kindsSeen.add(tokens.kinds[i])
+    assert.ok(kindsSeen.has(TOKEN_KEY), "should see keys")
+    assert.ok(kindsSeen.has(TOKEN_STRING), "should see strings")
+    assert.ok(kindsSeen.has(TOKEN_NUMBER), "should see numbers")
+    assert.ok(kindsSeen.has(TOKEN_BOOLEAN), "should see booleans")
+    assert.ok(kindsSeen.has(TOKEN_NULL), "should see null")
+    assert.ok(kindsSeen.has(TOKEN_PUNCT), "should see punctuation")
+    // Sanity: output is still correct.
+    assert.equal(
+      output,
+      "{\n  \"s\": \"v\",\n  \"n\": 1,\n  \"b\": true,\n  \"z\": null,\n  \"a\": [\n    1,\n    2\n  ]\n}",
+    )
+  })
+
+  it("slicing by offsets reproduces each token's literal text", () => {
+    const { output, tokens } = formatString(
+      "{\"k\":42,\"s\":\"hi\",\"b\":true,\"z\":null}",
+      { tokens: true },
+    )
+    for (let i = 0; i < tokens.count; i++) {
+      const text = tokenText(output, tokens.offsets, i)
+      const kind = tokens.kinds[i]
+      switch (kind) {
+        case TOKEN_KEY:
+          assert.match(text, /^"[^"]*"$/, `key token "${text}" not quoted`)
+          break
+        case TOKEN_STRING:
+          assert.match(text, /^"[^"]*"$/, `string token "${text}" not quoted`)
+          break
+        case TOKEN_NUMBER:
+          assert.match(text, /^-?\d/, `number token "${text}" doesn't start with digit`)
+          break
+        case TOKEN_BOOLEAN:
+          assert.ok(text === "true" || text === "false", `boolean "${text}"`)
+          break
+        case TOKEN_NULL:
+          assert.equal(text, "null")
+          break
+        case TOKEN_PUNCT:
+          assert.equal(text.length, 1, `punct "${text}" not single char`)
+          assert.ok("{}[],:".includes(text), `punct "${text}" not recognized`)
+          break
+        default:
+          assert.fail(`unknown kind ${kind}`)
+      }
+    }
+  })
+
+  it("object keys are distinguished from string values", () => {
+    const { output, tokens } = formatString("{\"a\":\"b\"}", { tokens: true })
+    const kindTexts = []
+    for (let i = 0; i < tokens.count; i++) {
+      kindTexts.push({ kind: tokens.kinds[i], text: tokenText(output, tokens.offsets, i) })
+    }
+    const keyTokens = kindTexts.filter((t) => t.kind === TOKEN_KEY)
+    const stringTokens = kindTexts.filter((t) => t.kind === TOKEN_STRING)
+    assert.equal(keyTokens.length, 1)
+    assert.equal(keyTokens[0].text, "\"a\"")
+    assert.equal(stringTokens.length, 1)
+    assert.equal(stringTokens[0].text, "\"b\"")
+  })
+
+  it("grows the token buffer correctly past its initial capacity", () => {
+    // Build a payload with well over the default INITIAL_TOKEN_CAPACITY of 1024 tokens.
+    const pairs = Array.from({ length: 500 }, (_, i) => `"k${i}":${i}`)
+    const input = `{${pairs.join(",")}}`
+    const { output, tokens } = formatString(input, { tokens: true })
+    // 500 keys + 500 numbers + 1 open + 500 colons + 499 commas + 1 close = 2001 tokens
+    assert.ok(tokens.count > 1024, `expected > 1024 tokens, got ${tokens.count}`)
+    // Verify the last key/value pair is classified correctly.
+    const kinds = Array.from(tokens.kinds.slice(0, tokens.count))
+    assert.ok(kinds.includes(TOKEN_KEY))
+    assert.ok(kinds.includes(TOKEN_NUMBER))
+    // Sanity: output is still the reference output.
+    assert.equal(output, JSON.stringify(JSON.parse(input), null, 2))
+  })
+
+  it("handles nested objects and empty containers without misclassifying keys", () => {
+    const { output, tokens } = formatString(
+      "{\"outer\":{\"inner\":1},\"empty\":{},\"arr\":[]}",
+      { tokens: true },
+    )
+    const kindTexts = []
+    for (let i = 0; i < tokens.count; i++) {
+      kindTexts.push({ kind: tokens.kinds[i], text: tokenText(output, tokens.offsets, i) })
+    }
+    const keys = kindTexts.filter((t) => t.kind === TOKEN_KEY).map((t) => t.text)
+    assert.deepEqual(keys, ["\"outer\"", "\"inner\"", "\"empty\"", "\"arr\""])
+    // No STRING tokens (all quoted scalars are keys here).
+    const stringValues = kindTexts.filter((t) => t.kind === TOKEN_STRING)
+    assert.equal(stringValues.length, 0)
+    // Output still correct.
+    assert.equal(
+      output,
+      "{\n  \"outer\": {\n    \"inner\": 1\n  },\n  \"empty\": {},\n  \"arr\": []\n}",
+    )
+  })
+
+  it("classifies string values that look like keys as strings, not keys", () => {
+    // "key_looking" is a string value, not a key — no `:` follows it.
+    const { tokens } = formatString(
+      "{\"k\":\"key_looking\",\"other\":\"v\"}",
+      { tokens: true },
+    )
+    const kindCounts = { key: 0, string: 0 }
+    for (let i = 0; i < tokens.count; i++) {
+      if (tokens.kinds[i] === TOKEN_KEY) kindCounts.key++
+      if (tokens.kinds[i] === TOKEN_STRING) kindCounts.string++
+    }
+    assert.equal(kindCounts.key, 2, "both keys should be keys")
+    assert.equal(kindCounts.string, 2, "both values should be strings")
+  })
+
+  it("handles non-ASCII keys, non-ASCII string values, and surrogate-pair emoji", () => {
+    const input = "{\"café\":\"日本語\",\"emoji\":\"🎉\"}"
+    const { output, tokens } = formatString(input, { tokens: true })
+    // Walk every token and verify that substring with its offsets
+    // reproduces the exact token text. This is the whole point of
+    // emitting UTF-16 code unit offsets instead of byte offsets.
+    for (let i = 0; i < tokens.count; i++) {
+      const text = tokenText(output, tokens.offsets, i)
+      assert.ok(text.length > 0, `token ${i} is empty`)
+    }
+    // Specifically verify the tricky tokens.
+    const kindTexts = []
+    for (let i = 0; i < tokens.count; i++) {
+      kindTexts.push({ kind: tokens.kinds[i], text: tokenText(output, tokens.offsets, i) })
+    }
+    const keys = kindTexts.filter((t) => t.kind === TOKEN_KEY).map((t) => t.text)
+    assert.deepEqual(keys, ["\"café\"", "\"emoji\""])
+    const strings = kindTexts.filter((t) => t.kind === TOKEN_STRING).map((t) => t.text)
+    assert.deepEqual(strings, ["\"日本語\"", "\"🎉\""])
+    // The emoji is a surrogate pair in UTF-16 — 2 code units. Its token
+    // is 4 code units long: ", 🎉 (= 2 units), ".
+    const emojiToken = kindTexts.find((t) => t.text === "\"🎉\"")
+    assert.equal(emojiToken.text.length, 4)
+  })
+})
+
+describe("Token buffer", () => {
+  it("grows when capacity is exceeded", () => {
+    const buf = createTokenBuffer(4)
+    for (let i = 0; i < 100; i++) {
+      buf.push(TOKEN_NUMBER, i * 2, i * 2 + 1)
+    }
+    const snap = buf.snapshot()
+    assert.equal(snap.count, 100)
+    assert.equal(snap.offsets.length, 200)
+    assert.equal(snap.kinds.length, 100)
+    assert.equal(snap.offsets[0], 0)
+    assert.equal(snap.offsets[199], 199)
+    assert.equal(snap.kinds[0], TOKEN_NUMBER)
+  })
+
+  it("flipLastKind rewrites the most recent token's kind", () => {
+    const buf = createTokenBuffer()
+    buf.push(TOKEN_STRING, 0, 5)
+    buf.flipLastKind(TOKEN_KEY)
+    const snap = buf.snapshot()
+    assert.equal(snap.kinds[0], TOKEN_KEY)
+  })
+})
 
 describe("Client (Worker-backed)", () => {
   before(() => {

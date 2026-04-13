@@ -78,7 +78,7 @@ export const createFormatter = (config = {}) => {
 
   // ── Worker message handling ──────────────────────────────────
   const handleWorkerMessage = (event) => {
-    const { type, id, payload, errors, message, bytesProcessed, totalBytes } = event.data
+    const { type, id, payload, errors, message, bytesProcessed, totalBytes, tokens } = event.data
     const job = pendingJobs.get(id)
     if (!job) return
 
@@ -86,7 +86,9 @@ export const createFormatter = (config = {}) => {
       pendingJobs.delete(id)
       job.cleanup?.()
       const bytes = new Uint8Array(payload)
-      job.resolve({ output: decoder.decode(bytes), errors: errors ?? [] })
+      const resolved = { output: decoder.decode(bytes), errors: errors ?? [] }
+      if (tokens) resolved.tokens = tokens
+      job.resolve(resolved)
     }
 
     if (type === "error") {
@@ -114,8 +116,10 @@ export const createFormatter = (config = {}) => {
   // ── Synchronous fallback ─────────────────────────────────────
   const formatSync = (jsonString, opts) => {
     const input = encoder.encode(jsonString)
-    const { output, errors } = formatBytes(input, opts)
-    return { output: decoder.decode(output), errors }
+    const result = formatBytes(input, opts)
+    const resolved = { output: decoder.decode(result.output), errors: result.errors }
+    if (result.tokens) resolved.tokens = result.tokens
+    return resolved
   }
 
   // ── Public: format ───────────────────────────────────────────
@@ -175,6 +179,7 @@ export const createFormatter = (config = {}) => {
           options: {
             indentSize: opts.indentSize,
             chunkSize: opts.chunkSize,
+            tokens: opts.tokens === true,
           },
         },
         [transferable],

@@ -38,6 +38,7 @@ import { DEFAULT_CHUNK_SIZE } from "./constants.js"
  * @param {Object}           params.state          - Formatter state object.
  * @param {Object}           params.outputBuffer   - Output buffer object.
  * @param {FormatChunkFn}    params.processChunk   - The core formatting function.
+ * @param {Object}           [params.tokens]       - Optional token buffer, threaded into processChunk.
  * @param {number}           [params.chunkSize]    - Bytes per chunk.
  * @param {ProgressCallback} [params.onProgress]   - Optional progress callback.
  * @param {AbortSignal}      [params.signal]       - Optional abort signal.
@@ -48,6 +49,7 @@ export const processInChunks = async ({
   state,
   outputBuffer,
   processChunk,
+  tokens = null,
   chunkSize = DEFAULT_CHUNK_SIZE,
   onProgress = null,
   signal = null,
@@ -62,7 +64,7 @@ export const processInChunks = async ({
     }
 
     const end = Math.min(offset + chunkSize, totalBytes)
-    processChunk(input, offset, end, state, outputBuffer)
+    processChunk(input, offset, end, state, outputBuffer, tokens)
 
     offset = end
 

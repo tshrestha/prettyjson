@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>highlight-oversized</title></head>
+<body>
+<pre id="target"></pre>
+<script>
+  // Build a payload that generates > HIGHLIGHT_TOKEN_THRESHOLD (250,000)
+  // tokens, so the content script falls back to plain-text rendering.
+  // Each item contributes roughly 27 tokens; 12,000 items ≈ 324,000
+  // tokens, safely over the threshold.
+  const items = []
+  for (let i = 0; i < 12000; i++) {
+    items.push({
+      id: i,
+      name: "item-" + i,
+      tags: ["alpha", "beta", "gamma"],
+      active: (i % 2) === 0,
+      value: i * 3.14,
+    })
+  }
+  document.getElementById("target").textContent = JSON.stringify({ items })
+</script>
+</body>
+</html>

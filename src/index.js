@@ -12,4 +12,13 @@
  */
 
 export { createFormatter } from "./client.js"
+export {
+  HIGHLIGHT_TOKEN_THRESHOLD,
+  TOKEN_BOOLEAN,
+  TOKEN_KEY,
+  TOKEN_NULL,
+  TOKEN_NUMBER,
+  TOKEN_PUNCT,
+  TOKEN_STRING,
+} from "./constants.js"
 export { formatBytes, formatString } from "./formatter.js"

@@ -18,7 +18,8 @@
         "src/worker.js",
         "src/formatter.js",
         "src/chunker.js",
-        "src/constants.js"
+        "src/constants.js",
+        "themes/fonts/JetBrainsMono-Regular.woff2"
       ],
       "matches": ["<all_urls>", "file:///*"]
     }
