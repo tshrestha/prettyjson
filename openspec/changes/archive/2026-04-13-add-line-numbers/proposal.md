@@ -13,9 +13,11 @@ Formatted JSON documents can be hundreds or thousands of lines long, and users f
 ## Capabilities
 
 ### New Capabilities
+
 - `line-numbers`: gutter rendering for formatted JSON in the Chrome extension — structural contract for how the line gutter is composed, styled, and kept in sync with the code column (including non-selectability of gutter text).
 
 ### Modified Capabilities
+
 - `json-syntax-highlighting`: the content script's render pipeline now produces a two-column layout (gutter + code) instead of writing tokens directly into the `<pre>`. The requirement that formatted output preserves copy-paste fidelity is extended to cover the new gutter.
 
 ## Impact

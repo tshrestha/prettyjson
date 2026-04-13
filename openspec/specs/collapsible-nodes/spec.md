@@ -26,7 +26,7 @@ The content script SHALL, for every object `{…}` and array `[…]` in a succes
 - **AND** exactly one direct child with class `pj-closer`
 - **AND** the opener's `textContent` MUST be `{` for `data-kind="object"` and `[` for `data-kind="array"`
 - **AND** the closer's `textContent` MUST be `}` for `data-kind="object"` and `]` for `data-kind="array"`
-- **AND** the placeholder's `textContent` MUST be ` … ` (space, horizontal ellipsis U+2026, space)
+- **AND** the placeholder's `textContent` MUST be `…` (space, horizontal ellipsis U+2026, space)
 
 #### Scenario: Invalid JSON receives no containers
 
@@ -43,7 +43,7 @@ The content script SHALL install a single delegated `click` handler on `.pj-code
 - **THEN** the container's `aria-expanded` MUST become `"false"`
 - **AND** the container's `.pj-content` descendant MUST have the `hidden` attribute set
 - **AND** the container's `.pj-placeholder` descendant MUST NOT have the `hidden` attribute
-- **AND** the visible text of the container MUST contain ` … ` (the ellipsis) between its opener and closer
+- **AND** the visible text of the container MUST contain `…` (the ellipsis) between its opener and closer
 
 #### Scenario: Clicking the closer of a collapsed container re-expands it
 

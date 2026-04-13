@@ -7,12 +7,12 @@ test("containers wrap every object and array with the expected shape", async ({ 
 
   // {"a":[1,2,3],"b":{"c":true}} → 3 containers: outer object, inner array, inner object.
   await expect(pre.locator(".pj-container")).toHaveCount(3)
-  await expect(pre.locator('.pj-container[data-kind="object"]')).toHaveCount(2)
-  await expect(pre.locator('.pj-container[data-kind="array"]')).toHaveCount(1)
+  await expect(pre.locator(".pj-container[data-kind=\"object\"]")).toHaveCount(2)
+  await expect(pre.locator(".pj-container[data-kind=\"array\"]")).toHaveCount(1)
 
   // Top-level (direct child of .pj-code) is exactly one container, the outer object.
   await expect(pre.locator(".pj-code > .pj-container")).toHaveCount(1)
-  await expect(pre.locator('.pj-code > .pj-container[data-kind="object"]')).toHaveCount(1)
+  await expect(pre.locator(".pj-code > .pj-container[data-kind=\"object\"]")).toHaveCount(1)
 })
 
 test("every container has opener, content, placeholder, and closer children", async ({ page, baseURL }) => {
@@ -29,7 +29,10 @@ test("every container has opener, content, placeholder, and closer children", as
       const placeholder = c.querySelector(":scope > .pj-placeholder")
       const closer = c.querySelector(":scope > .pj-closer")
       if (!opener || !content || !placeholder || !closer) {
-        problems.push({ i, missing: { opener: !opener, content: !content, placeholder: !placeholder, closer: !closer } })
+        problems.push({
+          i,
+          missing: { opener: !opener, content: !content, placeholder: !placeholder, closer: !closer },
+        })
         return
       }
       const kind = c.getAttribute("data-kind")
@@ -104,8 +107,8 @@ test("toggling one container does not affect its siblings", async ({ page, baseU
 
   // The two inner containers (array for "a", object for "b") are siblings
   // inside the outer object's .pj-content.
-  const innerArr = pre.locator('.pj-container[data-kind="array"]').first()
-  const innerObj = pre.locator('.pj-container[data-kind="object"]').nth(1) // outer object is nth(0)
+  const innerArr = pre.locator(".pj-container[data-kind=\"array\"]").first()
+  const innerObj = pre.locator(".pj-container[data-kind=\"object\"]").nth(1) // outer object is nth(0)
 
   await innerArr.locator(":scope > .pj-opener").click()
   await expect(innerArr).toHaveAttribute("aria-expanded", "false")
@@ -118,7 +121,7 @@ test("re-expanding an outer container preserves inner collapsed state", async ({
   await expect(pre).toHaveClass(/json-formatted/, { timeout: 5_000 })
 
   const outer = pre.locator(".pj-code > .pj-container").first()
-  const innerArr = pre.locator('.pj-container[data-kind="array"]').first()
+  const innerArr = pre.locator(".pj-container[data-kind=\"array\"]").first()
 
   // Collapse inner, collapse outer, expand outer. Inner should still be collapsed.
   await innerArr.locator(":scope > .pj-opener").click()

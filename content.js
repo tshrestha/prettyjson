@@ -243,8 +243,7 @@ pre.json-formatted :where(.pj-null)    { color: #56b6c2; }
   function attachToggleHandlers(preEl) {
     const code = preEl.querySelector(".pj-code")
     if (!code) return
-    const isToggle = (target) =>
-      target && target.closest && target.closest(".pj-opener, .pj-closer")
+    const isToggle = (target) => target && target.closest && target.closest(".pj-opener, .pj-closer")
     code.addEventListener("click", (e) => {
       const hit = isToggle(e.target)
       if (!hit) return

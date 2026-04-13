@@ -2,16 +2,17 @@
 
 `content.js` currently builds a `DocumentFragment` for each formatted `<pre>` by walking the flat token stream emitted from the formatter. The resulting DOM is one level deep: a sequence of `<span class="pj-...">` children inside a `.pj-code` wrapper, with plain text nodes for whitespace and punctuation. The sibling `.pj-gutter` holds a pre-computed `"1\n2\n3\n…"` string.
 
-The tokens from `src/` are an ordered list with kinds (`key`, `string`, `number`, `boolean`, `null`, `punct`) and UTF-16 offsets into the decoded formatted output. Structural containers (`{…}` / `[…]`) are expressed *implicitly* as a sequence of punctuation tokens — there is no "open/close pair" metadata. This is deliberate; the formatter's job is pure emission, not tree-building.
+The tokens from `src/` are an ordered list with kinds (`key`, `string`, `number`, `boolean`, `null`, `punct`) and UTF-16 offsets into the decoded formatted output. Structural containers (`{…}` / `[…]`) are expressed _implicitly_ as a sequence of punctuation tokens — there is no "open/close pair" metadata. This is deliberate; the formatter's job is pure emission, not tree-building.
 
 Two facts about the existing output shape are load-bearing for this change:
 
-1. The formatter always puts the opening bracket at the end of a line, the contents indented on new lines, and the closing bracket on its own line aligned with the container's parent. So the whitespace *between* the opener and the first inner token always starts with `\n`, and the whitespace *between* the last inner token and the closer always starts with `\n`.
+1. The formatter always puts the opening bracket at the end of a line, the contents indented on new lines, and the closing bracket on its own line aligned with the container's parent. So the whitespace _between_ the opener and the first inner token always starts with `\n`, and the whitespace _between_ the last inner token and the closer always starts with `\n`.
 2. Because of fact 1, wrapping the inner content of a container in a `display: none` block removes the contained text, all inner newlines, and both gutter-relevant line counts — which is exactly what we want when collapsing.
 
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Every container in a highlighted `<pre>` collapses and expands on click.
 - Toggle state is independent per container.
 - Collapsed containers render `{ … }` / `[ … ]` on one line and take one gutter row.
@@ -20,6 +21,7 @@ Two facts about the existing output shape are load-bearing for this change:
 - Existing syntax-highlighting and line-number features continue to pass their specs without regression.
 
 **Non-Goals:**
+
 - Persistence of collapsed state across page reloads or between navigations.
 - "Collapse all" / "expand all" controls, search/find, or any kind of chrome outside the `<pre>`.
 - Collapsibles on above-threshold payloads (the fallback plain-text path). Out of scope — the fallback has no token stream to pair brackets.
@@ -58,16 +60,16 @@ Every container produces this tree inside `.pj-code`:
 - `.pj-container` is the stable selector for toggling. Its `aria-expanded` mirrors state.
 - `.pj-opener` and `.pj-closer` are the click targets. Both receive `role="button"` / `tabindex="0"`. Placing the button role on the bracket characters themselves (rather than an extra caret glyph) keeps layout identical to today — no gutter realignment, no shifted indentation.
 - `.pj-content` holds every token and whitespace between the brackets. When hidden, its absence collapses both the inner text and all inner newlines, which is how the container fits on one line.
-- `.pj-placeholder` is an inline span whose text is ` … ` (with surrounding spaces). It is `hidden` by default and `hidden="false"` when collapsed. Toggling `hidden` on these two siblings is the full mechanism for showing/hiding state.
+- `.pj-placeholder` is an inline span whose text is `…` (with surrounding spaces). It is `hidden` by default and `hidden="false"` when collapsed. Toggling `hidden` on these two siblings is the full mechanism for showing/hiding state.
 - Nested containers: `.pj-content` of an outer container holds inner `.pj-container` elements. Toggling the outer element hides everything, including any inner collapsed/expanded state, which is preserved in the DOM and reappears as-is when the outer is expanded again.
 
 **Alternatives considered:**
 
-- **A `<details>` / `<summary>` pair.** Native semantics, but `<summary>` insists on being the first child and forcibly wraps the bracket with a marker disclosure-triangle pseudo-element that cannot be styled away on all browsers. It also makes the closing bracket live *outside* the element, which breaks the symmetry needed for "click the closer to collapse".
+- **A `<details>` / `<summary>` pair.** Native semantics, but `<summary>` insists on being the first child and forcibly wraps the bracket with a marker disclosure-triangle pseudo-element that cannot be styled away on all browsers. It also makes the closing bracket live _outside_ the element, which breaks the symmetry needed for "click the closer to collapse".
 - **A single `hidden` attribute on a flat list of descendants.** Requires per-node state or repeatedly walking siblings on toggle. The wrapper approach is O(1) per toggle.
 - **Caret glyph before the opener.** Considered and rejected: either it shifts the opener one column to the right (breaks indent alignment and gutter mapping) or it is `position: absolute` (complicates the grid layout inside the existing `.pj-code` column). Using the bracket itself as the affordance, with a hover highlight, is lighter and layout-neutral.
 
-### Decision 3 — Collapsed placeholder is a static ` … `
+### Decision 3 — Collapsed placeholder is a static `…`
 
 The collapsed text is the literal `" … "` (space, horizontal ellipsis, space). No count like "3 items", no type annotation. Reasons:
 

@@ -15,9 +15,11 @@ Pretty-printed JSON is readable until one object has 400 nested children and you
 ## Capabilities
 
 ### New Capabilities
+
 - `collapsible-nodes`: interactive expand/collapse of object and array containers inside a formatted `<pre>`, including the toggle affordance, the collapsed placeholder, a11y semantics, and the rule for keeping the line-number gutter in sync with visible rows.
 
 ### Modified Capabilities
+
 - `json-syntax-highlighting`: the content script's code-fragment builder now groups tokens inside each container into a wrapper element (with opener, content, placeholder, and closer children) instead of emitting a flat token/text sequence. The existing "token spans + plain-text punctuation" contract remains but is now nested structurally.
 - `line-numbers`: the gutter is no longer a one-shot string built from `countNewlines(output)`. It is recomputed from the currently visible rows whenever a container is toggled, so the rule "one gutter number per visible row" is preserved.
 

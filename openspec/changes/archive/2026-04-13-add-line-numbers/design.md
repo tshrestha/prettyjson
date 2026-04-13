@@ -4,11 +4,12 @@
 
 The formatted output uses LF (`\n`) as its only line terminator (the formatter emits newlines between structural tokens), so a line count is a cheap newline count over the already-produced string. The default OneDark-Pro theme is injected once per page via a `<style data-pretty-json>` element in `document.head`.
 
-Key constraint from the proposal: **copy-paste must remain the raw formatted JSON**. Nothing pasted from a highlighted `<pre>` can contain line numbers. This eliminates the naive "prepend `1 ` to each line" approach and drives the DOM decisions below.
+Key constraint from the proposal: **copy-paste must remain the raw formatted JSON**. Nothing pasted from a highlighted `<pre>` can contain line numbers. This eliminates the naive "prepend `1` to each line" approach and drives the DOM decisions below.
 
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Every successfully formatted `<pre>` shows a left-hand line-number gutter aligned to code rows.
 - The gutter is visually part of the OneDark-Pro theme (muted foreground, shared background, same font as the code).
 - Gutter digits are not included in the user's selection or clipboard.
@@ -16,6 +17,7 @@ Key constraint from the proposal: **copy-paste must remain the raw formatted JSO
 - No changes to the `src/` formatter engine — the gutter is derived from the already-produced output.
 
 **Non-Goals:**
+
 - Clickable / linkable line numbers (anchor URLs like `#L42`).
 - Jump-to-line search box, or any interactive gutter affordance.
 - Per-line highlighting (hover states, fold controls, error markers).

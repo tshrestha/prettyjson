@@ -14,7 +14,7 @@ The Chrome extension content script SHALL, for each `<pre>` it successfully form
 
 - **WHEN** a page contains `<pre>{"a":1,"b":2}</pre>` and the content script formats it with highlighting enabled
 - **THEN** the resulting `<pre class="json-formatted">` MUST contain a descendant element with class `pj-gutter`
-- **AND** the `pj-gutter` element's `textContent` MUST be exactly the newline-joined sequence `1\n2\n3\n4` (four visible rows: `{`, `  "a": 1,`, `  "b": 2`, `}`)
+- **AND** the `pj-gutter` element's `textContent` MUST be exactly the newline-joined sequence `1\n2\n3\n4` (four visible rows: `{`, `"a": 1,`, `"b": 2`, `}`)
 - **AND** the `<pre>` MUST also contain a descendant element with class `pj-code` holding the formatted token spans
 
 #### Scenario: Above-threshold document still shows a gutter
