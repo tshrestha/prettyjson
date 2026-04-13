@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>gutter-large</title></head>
+<body>
+<pre id="target"></pre>
+<script>
+  // 120 items → formatted array with 122 lines ([ + 120 items + ]).
+  // Well above the 100-line lower bound and widely spread digit widths
+  // (1, 2, and 3 digits) so the right-alignment rule is exercised.
+  const items = []
+  for (let i = 0; i < 120; i++) items.push(i)
+  document.getElementById("target").textContent = JSON.stringify(items)
+</script>
+</body>
+</html>

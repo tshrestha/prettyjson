@@ -56,14 +56,16 @@ test("oversized payload falls back to plain text but retains the theme", async (
   await page.goto(`${baseURL}/highlight-oversized.html`)
   const pre = page.locator("#target")
   await expect(pre).toHaveClass(/json-formatted/, { timeout: 30_000 })
-  // No highlighted spans — fallback rendered plain text.
-  const pjCount = await pre.locator("[class^='pj-']").count()
-  expect(pjCount).toBe(0)
+  // No highlighted token spans — fallback rendered plain text inside
+  // the gutter+code layout.
+  for (const cls of ["pj-key", "pj-string", "pj-number", "pj-boolean", "pj-null"]) {
+    await expect(pre.locator(`span.${cls}`)).toHaveCount(0)
+  }
   // But the theme background still applies.
   const bg = await pre.evaluate((el) => getComputedStyle(el).backgroundColor)
   expect(bg).toBe("rgb(40, 44, 52)")
   // And the text content is still formatted (contains newlines and indent).
-  const text = await pre.textContent()
+  const text = await pre.locator(".pj-code").textContent()
   expect(text.length).toBeGreaterThan(100_000)
   expect(text).toContain("\n")
 })

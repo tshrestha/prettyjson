@@ -87,21 +87,30 @@ The `createFormatter()` Worker path SHALL, when `tokens: true` is requested, ret
 
 ### Requirement: Content script renders highlighted DOM for successfully formatted `<pre>` blocks
 
-The Chrome extension content script SHALL, for each `<pre>` it successfully formats, replace the element's contents with a DOM tree containing one `<span>` per non-punctuation token (tagged with a class identifying its token kind) and plain text nodes for all whitespace and punctuation between those spans, while leaving any `<pre>` whose formatting produced errors entirely untouched.
+The Chrome extension content script SHALL, for each `<pre>` it successfully formats, replace the element's contents with a DOM tree containing:
 
-#### Scenario: Valid JSON becomes highlighted spans
+1. A single `.pj-gutter` span holding the line-number text (see the `line-numbers` capability for gutter semantics), followed by
+2. A single `.pj-code` span containing one `<span>` per non-punctuation token (tagged with a class identifying its token kind) and plain text nodes for whitespace.
+
+Within `.pj-code`, every object `{…}` and array `[…]` in the formatted output SHALL be represented by a `.pj-container` element whose opener and closer punctuation live in its `.pj-opener` and `.pj-closer` child elements, and whose inner tokens and whitespace live in its `.pj-content` child (see the `collapsible-nodes` capability for the full container shape). Non-container punctuation (`,` and `:`) SHALL continue to appear as plain text nodes and MUST NOT be wrapped in any `<span class="pj-...">` element.
+
+The script SHALL leave any `<pre>` whose formatting produced errors entirely untouched.
+
+#### Scenario: Valid JSON becomes highlighted spans inside a code column
 
 - **WHEN** a page contains `<pre>{"a":1}</pre>` and the content script runs
-- **THEN** after formatting the `<pre>` MUST contain at least one descendant `<span>` with class `pj-key` whose text is `"a"`
-- **AND** it MUST contain at least one descendant `<span>` with class `pj-number` whose text is `1`
-- **AND** the `<pre>` MUST have the `json-formatted` class
+- **THEN** after formatting the `<pre>` MUST have the `json-formatted` class
+- **AND** the `<pre>` MUST contain a descendant `.pj-code` element
+- **AND** `.pj-code` MUST contain exactly one descendant `.pj-container` whose `data-kind` is `"object"`
+- **AND** inside that container's `.pj-content` there MUST be at least one `<span>` with class `pj-key` whose text is `"a"`
+- **AND** inside that container's `.pj-content` there MUST be at least one `<span>` with class `pj-number` whose text is `1`
 - **AND** the `<pre>` MUST NOT contain any descendant `<span>` with class `pj-punct`
-- **AND** the structural characters `{`, `}`, `:` MUST appear in the element's `textContent` as plain text (not wrapped in any `<span>`)
+- **AND** the structural characters `,` and `:` MUST appear in `.pj-code`'s visible `textContent` as plain text (not wrapped in any `<span class="pj-...">`)
 
-#### Scenario: Invalid JSON receives no spans
+#### Scenario: Invalid JSON receives no spans, no gutter, and no containers
 
 - **WHEN** a page contains `<pre>{"a":1}}</pre>` (trailing extra `}`)
-- **THEN** the `<pre>` MUST NOT contain any descendant element with a `pj-` class prefix
+- **THEN** the `<pre>` MUST NOT contain any descendant element with a `pj-` class prefix (no `pj-key`, `pj-string`, `pj-gutter`, `pj-code`, `pj-container`, etc.)
 - **AND** the `<pre>` MUST NOT have the `json-formatted` class
 
 ### Requirement: Token class names use the `pj-` prefix for five non-punctuation kinds
@@ -168,19 +177,20 @@ The content script SHALL wait for the `"JetBrains Mono"` font to be loaded by th
 
 ### Requirement: Highlighting falls back to plain text when it cannot be applied
 
-The content script SHALL, if style injection or DOM construction fails (for example due to page CSP or an oversized payload exceeding a configured threshold), fall back to the existing plain-text rendering path such that the `<pre>` still receives the formatted text and the `json-formatted` class, without throwing an uncaught error.
+The content script SHALL, if style injection or DOM construction fails (for example due to page CSP or an oversized payload exceeding a configured threshold), fall back to the existing plain-text rendering path such that the `<pre>` still receives the formatted text and the `json-formatted` class, without throwing an uncaught error. In the fallback, the formatted text SHALL be placed inside the `.pj-code` column alongside the `.pj-gutter` so that line numbers still display.
 
 #### Scenario: Style injection failure degrades gracefully
 
 - **WHEN** appending the injected stylesheet to `document.head` throws
-- **THEN** the `<pre>` MUST still receive the plain formatted text via `textContent`
+- **THEN** the `<pre>` MUST still receive the plain formatted text (either via `textContent` on the `<pre>` directly or inside a `.pj-code` child)
 - **AND** the `<pre>` MUST still have the `json-formatted` class
 - **AND** no uncaught exception MUST escape the content script
 
-#### Scenario: Oversized payload skips highlight rendering
+#### Scenario: Oversized payload skips highlight rendering but keeps the gutter
 
 - **WHEN** the token count for a successfully formatted `<pre>` exceeds `HIGHLIGHT_TOKEN_THRESHOLD` (initial value `250_000`)
-- **THEN** the `<pre>` MUST receive the plain formatted text via `textContent`
+- **THEN** the `<pre>` MUST contain a `.pj-code` element whose text content is the plain formatted output
+- **AND** the `<pre>` MUST contain a `.pj-gutter` element whose line count matches the number of lines in the formatted output
 - **AND** the `<pre>` MUST have the `json-formatted` class
-- **AND** the `<pre>` MUST still receive the OneDark-Pro background and JetBrains Mono font (the theme applies even when highlighting spans are skipped for size)
-- **AND** no `pj-` spans MUST be inserted into that `<pre>`
+- **AND** the `<pre>` MUST still receive the OneDark-Pro background and JetBrains Mono font
+- **AND** no `pj-` token spans (`pj-key`, `pj-string`, `pj-number`, `pj-boolean`, `pj-null`) MUST be inserted into that `<pre>`

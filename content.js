@@ -44,6 +44,32 @@ pre.json-formatted {
   background-color: #282c34;
   color: #abb2bf;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  display: grid;
+  grid-template-columns: auto 1fr;
+}
+pre.json-formatted :where(.pj-gutter) {
+  color: #5c6370;
+  text-align: right;
+  padding: 0 0.75em 0 0.25em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+pre.json-formatted :where(.pj-code) {
+  min-width: 0;
+}
+pre.json-formatted :where(.pj-opener, .pj-closer) {
+  cursor: pointer;
+  border-radius: 2px;
+}
+pre.json-formatted :where(.pj-opener, .pj-closer):hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+pre.json-formatted :where(.pj-opener, .pj-closer):focus-visible {
+  outline: 2px solid #61afef;
+  outline-offset: 1px;
+}
+pre.json-formatted :where(.pj-placeholder) {
+  color: #5c6370;
 }
 pre.json-formatted :where(.pj-key)     { color: #e06c75; }
 pre.json-formatted :where(.pj-string)  { color: #98c379; }
@@ -74,38 +100,176 @@ pre.json-formatted :where(.pj-null)    { color: #56b6c2; }
     }
   }
 
+  function countLines(str) {
+    let n = 1
+    for (let i = 0; i < str.length; i++) {
+      if (str.charCodeAt(i) === 10) n++
+    }
+    return n
+  }
+
+  // buildGutterText(4) → "1\n2\n3\n4"
+  function buildGutterText(lineCount) {
+    let s = "1"
+    for (let i = 2; i <= lineCount; i++) s += "\n" + i
+    return s
+  }
+
   /**
-   * Build a DocumentFragment for the formatted output and swap it into
-   * `el`. Emits <span class="pj-..."> for the five non-punctuation token
-   * kinds; punctuation and whitespace go in as plain text nodes and
-   * inherit the default foreground color from pre.json-formatted.
+   * Build a DocumentFragment of tokenized spans for the formatted output.
+   * Emits <span class="pj-..."> for the five non-punctuation token kinds;
+   * non-container punctuation and whitespace go in as plain text nodes.
+   * Each `{…}` and `[…]` container is wrapped in a .pj-container with
+   * opener/content/placeholder/closer children for interactive collapse.
    */
-  function renderHighlighted(el, output, tokens, kindToClass, puncCode) {
-    const frag = document.createDocumentFragment()
+  function buildCodeFragment(output, tokens, kindToClass, puncCode) {
+    const root = document.createDocumentFragment()
+    // stack[top] is where new content appends. Either the root fragment
+    // or the .pj-content element of an open container.
+    const stack = [root]
+    // containers[i] is the .pj-container whose .pj-content is stack[i+1].
+    // Used to find the matching opener's closer when a bracket closes.
+    const containers = [null]
     const { offsets, kinds, count } = tokens
     let cursor = 0
+
+    function currentTarget() {
+      return stack[stack.length - 1]
+    }
+
     for (let t = 0; t < count; t++) {
       const start = offsets[t * 2]
       const end = offsets[t * 2 + 1]
       if (start > cursor) {
-        frag.appendChild(document.createTextNode(output.substring(cursor, start)))
+        currentTarget().appendChild(
+          document.createTextNode(output.substring(cursor, start)),
+        )
       }
       const kind = kinds[t]
+      const text = output.substring(start, end)
       if (kind === puncCode) {
-        // Punctuation: plain text node, inherits default fg color.
-        frag.appendChild(document.createTextNode(output.substring(start, end)))
+        const ch = text.charCodeAt(0)
+        if (ch === 0x7B || ch === 0x5B) {
+          // Opening bracket: create a new container scaffold and push.
+          const kindName = ch === 0x7B ? "object" : "array"
+          const container = document.createElement("span")
+          container.className = "pj-container"
+          container.dataset.kind = kindName
+          container.setAttribute("aria-expanded", "true")
+
+          const opener = document.createElement("span")
+          opener.className = "pj-opener"
+          opener.setAttribute("role", "button")
+          opener.setAttribute("tabindex", "0")
+          opener.textContent = text
+
+          const content = document.createElement("span")
+          content.className = "pj-content"
+
+          const placeholder = document.createElement("span")
+          placeholder.className = "pj-placeholder"
+          placeholder.hidden = true
+          placeholder.textContent = " \u2026 "
+
+          const closer = document.createElement("span")
+          closer.className = "pj-closer"
+          closer.setAttribute("role", "button")
+          closer.setAttribute("tabindex", "0")
+          // closer text is filled in when the matching bracket arrives.
+
+          container.append(opener, content, placeholder, closer)
+          currentTarget().appendChild(container)
+          stack.push(content)
+          containers.push(container)
+        } else if (ch === 0x7D || ch === 0x5D) {
+          // Closing bracket: fill the top container's closer and pop.
+          const container = containers[containers.length - 1]
+          if (!container) {
+            // Unbalanced close (formatter should never emit this, but
+            // be safe): emit as plain text into the root.
+            root.appendChild(document.createTextNode(text))
+          } else {
+            container.querySelector(":scope > .pj-closer").textContent = text
+            stack.pop()
+            containers.pop()
+          }
+        } else {
+          // Non-container punctuation (`,` or `:`): plain text node.
+          currentTarget().appendChild(document.createTextNode(text))
+        }
       } else {
         const span = document.createElement("span")
         span.className = kindToClass[kind]
-        span.textContent = output.substring(start, end)
-        frag.appendChild(span)
+        span.textContent = text
+        currentTarget().appendChild(span)
       }
       cursor = end
     }
     if (cursor < output.length) {
-      frag.appendChild(document.createTextNode(output.substring(cursor)))
+      currentTarget().appendChild(document.createTextNode(output.substring(cursor)))
     }
-    el.replaceChildren(frag)
+    if (stack.length !== 1) {
+      // Unbalanced open: the formatter already produced successful
+      // output with [] errors, so this shouldn't happen. Throw so the
+      // caller's try/catch falls back to plain-text rendering.
+      throw new Error("unbalanced container stack: " + stack.length)
+    }
+    return root
+  }
+
+  function recomputeGutter(preEl) {
+    const code = preEl.querySelector(".pj-code")
+    const gutter = preEl.querySelector(".pj-gutter")
+    if (!code || !gutter) return
+    const visibleText = code.innerText
+    let rows = 1
+    for (let i = 0; i < visibleText.length; i++) {
+      if (visibleText.charCodeAt(i) === 10) rows++
+    }
+    gutter.textContent = buildGutterText(rows)
+  }
+
+  function toggleContainer(container, preEl) {
+    const isOpen = container.getAttribute("aria-expanded") === "true"
+    const next = isOpen ? "false" : "true"
+    container.setAttribute("aria-expanded", next)
+    const content = container.querySelector(":scope > .pj-content")
+    const placeholder = container.querySelector(":scope > .pj-placeholder")
+    if (content) content.hidden = isOpen
+    if (placeholder) placeholder.hidden = !isOpen
+    recomputeGutter(preEl)
+  }
+
+  function attachToggleHandlers(preEl) {
+    const code = preEl.querySelector(".pj-code")
+    if (!code) return
+    const isToggle = (target) =>
+      target && target.closest && target.closest(".pj-opener, .pj-closer")
+    code.addEventListener("click", (e) => {
+      const hit = isToggle(e.target)
+      if (!hit) return
+      const container = hit.closest(".pj-container")
+      if (container) toggleContainer(container, preEl)
+    })
+    code.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return
+      const hit = isToggle(e.target)
+      if (!hit) return
+      e.preventDefault()
+      const container = hit.closest(".pj-container")
+      if (container) toggleContainer(container, preEl)
+    })
+  }
+
+  function renderWithGutter(el, codeFragment, lineCount) {
+    const gutter = document.createElement("span")
+    gutter.className = "pj-gutter"
+    gutter.setAttribute("aria-hidden", "true")
+    gutter.textContent = buildGutterText(lineCount)
+    const code = document.createElement("span")
+    code.className = "pj-code"
+    code.appendChild(codeFragment)
+    el.replaceChildren(gutter, code)
   }
 
   import(chrome.runtime.getURL("src/index.js"))
@@ -148,10 +312,13 @@ pre.json-formatted :where(.pj-null)    { color: #56b6c2; }
 
           const tokens = result.tokens
           const underThreshold = tokens && tokens.count <= HIGHLIGHT_TOKEN_THRESHOLD
+          const lineCount = countLines(result.output)
 
           if (underThreshold) {
             try {
-              renderHighlighted(el, result.output, tokens, kindToClass, TOKEN_PUNCT)
+              const codeFrag = buildCodeFragment(result.output, tokens, kindToClass, TOKEN_PUNCT)
+              renderWithGutter(el, codeFrag, lineCount)
+              attachToggleHandlers(el)
             } catch (err) {
               // DOM/rendering failure — fall back to plain formatted
               // text. The theme background + font still apply via the
@@ -162,9 +329,16 @@ pre.json-formatted :where(.pj-null)    { color: #56b6c2; }
           } else {
             // Above HIGHLIGHT_TOKEN_THRESHOLD: the DOM cost of hundreds
             // of thousands of spans outweighs the readability win.
-            // Render plain formatted text (still themed via the
-            // json-formatted class).
-            el.textContent = result.output
+            // Render plain formatted text inside the gutter+code layout
+            // so line numbers still display.
+            try {
+              const codeFrag = document.createDocumentFragment()
+              codeFrag.appendChild(document.createTextNode(result.output))
+              renderWithGutter(el, codeFrag, lineCount)
+            } catch (err) {
+              console.warn("Pretty JSON: render failed, falling back:", err.message)
+              el.textContent = result.output
+            }
           }
         } catch (err) {
           if (err.name !== "AbortError") {
