@@ -46,6 +46,10 @@ pre.json-formatted {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   display: grid;
   grid-template-columns: auto 1fr;
+  /* !important beats the inline white-space:pre-wrap that Chrome's native
+     text-file viewer sets on <pre> for raw .json URLs — without this, long
+     lines wrap and the gutter's row count falls short of the visible rows. */
+  white-space: pre !important;
 }
 pre.json-formatted :where(.pj-gutter) {
   color: #5c6370;
@@ -56,6 +60,7 @@ pre.json-formatted :where(.pj-gutter) {
 }
 pre.json-formatted :where(.pj-code) {
   min-width: 0;
+  white-space: pre !important;
 }
 pre.json-formatted :where(.pj-opener, .pj-closer) {
   cursor: pointer;

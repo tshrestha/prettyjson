@@ -89,6 +89,44 @@ test("large document gutter lists every line number from 1 to the last", async (
   }
 })
 
+test("host <pre> with inline white-space:pre-wrap still keeps gutter aligned with code", async ({ page, baseURL }) => {
+  await page.goto(`${baseURL}/gutter-pre-wrap.html`)
+  const pre = page.locator("#target")
+  await expect(pre).toHaveClass(/json-formatted/, { timeout: 5_000 })
+
+  const data = await pre.evaluate((el) => {
+    const code = el.querySelector(".pj-code")
+    const gutter = el.querySelector(".pj-gutter")
+    // The injected stylesheet must beat the host's inline white-space.
+    const whiteSpaceCode = getComputedStyle(code).whiteSpace
+    const whiteSpacePre = getComputedStyle(el).whiteSpace
+    // Measure the bottom of the gutter's first text node (its line numbers)
+    // vs. the bottom of the code column box. With soft-wrap suppressed the
+    // gap must be no larger than a single line.
+    const range = document.createRange()
+    range.selectNodeContents(gutter.firstChild)
+    const gutterTextBottom = range.getBoundingClientRect().bottom
+    const codeBottom = code.getBoundingClientRect().bottom
+    // line-height is usually "normal" — measure a real row instead by
+    // selecting a single line in the gutter and taking its rect height.
+    const oneRow = document.createRange()
+    const txt = gutter.firstChild.nodeValue
+    const firstNL = txt.indexOf("\n")
+    oneRow.setStart(gutter.firstChild, 0)
+    oneRow.setEnd(gutter.firstChild, firstNL >= 0 ? firstNL : txt.length)
+    const lineHeightPx = oneRow.getBoundingClientRect().height
+    return {
+      whiteSpaceCode,
+      whiteSpacePre,
+      delta: codeBottom - gutterTextBottom,
+      lineHeightPx,
+    }
+  })
+  expect(data.whiteSpaceCode).toBe("pre")
+  expect(data.whiteSpacePre).toBe("pre")
+  expect(data.delta).toBeLessThanOrEqual(data.lineHeightPx)
+})
+
 test("keyboard select-all serializes the formatted <pre> without gutter digits", async ({ page, baseURL }) => {
   await page.goto(`${baseURL}/gutter.html`)
   const pre = page.locator("#target")
