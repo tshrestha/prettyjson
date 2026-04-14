@@ -44,6 +44,7 @@ pre.json-formatted {
   background-color: #282c34;
   color: #abb2bf;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
   display: grid;
   grid-template-columns: auto 1fr;
   /* !important beats the inline white-space:pre-wrap that Chrome's native
